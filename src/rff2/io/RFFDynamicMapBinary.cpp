@@ -35,16 +35,17 @@ namespace merutilm::rff2 {
         }
     }
 
-    inline const RFFDynamicMapBinary RFFDynamicMapBinary::DEFAULT = RFFDynamicMapBinary(0, 0, 0, Matrix<double>(0, 0));
+    inline const RFFDynamicMapBinary RFFDynamicMapBinary::DEFAULT = RFFDynamicMapBinary(0, 0, 0, std::vector<double>(), 0, 0);
 
     RFFDynamicMapBinary::RFFDynamicMapBinary(const float logZoom, const uint64_t period, const uint64_t maxIteration,
-                                  Matrix<double> iterations) : RFFBinary(logZoom), period(period), maxIteration(maxIteration),
-                                                               iterations(std::move(iterations)) {
+                                  std::vector<double> iterations, const uint16_t width, const uint16_t height) : RFFBinary(logZoom), period(period), maxIteration(maxIteration),
+                                                               iterations(std::move(iterations)), width(width), height(height) {
     }
 
 
     bool RFFDynamicMapBinary::hasData() const {
-        return iterations.getWidth() > 0;
+        return width > 0 && height > 0 &&
+               iterations.size() == static_cast<size_t>(width) * height;
     }
 
 
@@ -89,24 +90,23 @@ namespace merutilm::rff2 {
         }
         std::vector<double> iterations(elementCount);
         std::memcpy(iterations.data(), bytes.data() + offset, elementCount * sizeof(double));
-        return RFFDynamicMapBinary(logZoom, period, maxIteration, Matrix(width, height, iterations));
+        return RFFDynamicMapBinary(logZoom, period, maxIteration, std::move(iterations), width, height);
     }
 
     std::vector<std::byte> RFFDynamicMapBinary::encode() const {
         if (!hasData())
             return {};
-        const auto &canvas = iterations.getCanvas();
         std::vector<std::byte> bytes;
         bytes.reserve(sizeof(uint16_t) * 2 + sizeof(float) + sizeof(uint64_t) * 2 +
-                      canvas.size() * sizeof(double));
-        appendValue(bytes, iterations.getWidth());
-        appendValue(bytes, iterations.getHeight());
+                      iterations.size() * sizeof(double));
+        appendValue(bytes, width);
+        appendValue(bytes, height);
         appendValue(bytes, getLogZoom());
         appendValue(bytes, period);
         appendValue(bytes, maxIteration);
         const auto offset = bytes.size();
-        bytes.resize(offset + canvas.size() * sizeof(double));
-        std::memcpy(bytes.data() + offset, canvas.data(), canvas.size() * sizeof(double));
+        bytes.resize(offset + iterations.size() * sizeof(double));
+        std::memcpy(bytes.data() + offset, iterations.data(), iterations.size() * sizeof(double));
         return bytes;
     }
 
@@ -133,16 +133,4 @@ namespace merutilm::rff2 {
         }
     }
 
-
-    uint64_t RFFDynamicMapBinary::getPeriod() const {
-        return period;
-    }
-
-    uint64_t RFFDynamicMapBinary::getMaxIteration() const {
-        return maxIteration;
-    }
-
-    const Matrix<double> &RFFDynamicMapBinary::getMatrix() const {
-        return iterations;
-    }
 }

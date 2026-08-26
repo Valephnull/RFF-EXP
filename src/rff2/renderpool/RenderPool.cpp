@@ -661,8 +661,8 @@ namespace merutilm::rff2 {
             const auto internalExtent = RendererUtils::getInternalImageExtent(
                     {hostJob->manifest.windowWidth, hostJob->manifest.windowHeight},
                     hostJob->manifest.clarityMultiplier);
-            if (!map.hasData() || map.getMatrix().getWidth() != internalExtent.width ||
-                map.getMatrix().getHeight() != internalExtent.height ||
+            if (!map.hasData() || map.width != internalExtent.width ||
+                map.height != internalExtent.height ||
                 std::abs(map.getLogZoom() - frame.logZoom) >= 0.0005f) {
                 frame.error = "Worker returned a mismatched or damaged keyframe";
                 frame.state = frame.attempts >= 3 ? RenderPoolFrameState::FAILED : RenderPoolFrameState::WAITING;
@@ -696,7 +696,7 @@ namespace merutilm::rff2 {
                 return false;
             }
             RFFLocationBinary(frame.logZoom, hostJob->manifest.centerReal, hostJob->manifest.centerImag,
-                              map.getMaxIteration())
+                              map.maxIteration)
                     .exportAsKeyframe(hostJob->outputDirectory, frameId);
             frame.state = RenderPoolFrameState::COMPLETE;
             frame.error.clear();

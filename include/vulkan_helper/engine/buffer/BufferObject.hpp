@@ -36,7 +36,7 @@ namespace merutilm::vkh {
 
         BufferObject &operator=(BufferObject &&) noexcept = delete;
 
-        void lock(CommandPool & commandPool, const Fence * fence = VK_NULL_HANDLE);
+        void lock(CommandPool & commandPool, Fence * fence = VK_NULL_HANDLE);
 
         void unlock(CommandPool & commandPool, const Fence * fence = VK_NULL_HANDLE);
 

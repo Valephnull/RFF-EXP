@@ -12,17 +12,18 @@
 #include <thread>
 
 #include "../io/RFFDynamicMapBinary.h"
+#include "../data/Matrix.h"
 #include "../mb/MB2Perturbator.h"
 #include "../mb/MB2RenderData.hpp"
 #include "../parallel/BackgroundThreads.h"
 #include "../preset/Presets.h"
 #include "../renderpool/RenderPool.hpp"
 #include "../settings/Settings.h"
-#include "AppRenderManagerRequests.hpp"
 #include "AppRenderer.hpp"
 #include "AutoExplorer.hpp"
 #include "CrashRecovery.hpp"
 #include "CursorManager.hpp"
+#include "UpdateRequests.hpp"
 #include "VideoProgressInfo.hpp"
 #include "ZoomAnimationInfo.hpp"
 #include "vulkan_helper/Application.hpp"
@@ -59,8 +60,9 @@ namespace merutilm::rff2 {
         };
 
         ParallelRenderState state = {};
+        std::mutex ptbWithComputeShaderMutex;
         Settings settings;
-        AppRenderManagerRequests requests = {};
+        UpdateRequests requests = {};
         AppRenderer *renderer = nullptr;
 
         std::atomic<bool> idleCompute = true;
@@ -71,7 +73,7 @@ namespace merutilm::rff2 {
         std::atomic<bool> unlockNavigationAfterRender = false;
 
         std::array<std::string, Constants::Status::LENGTH> statusMessages = {};
-        std::unique_ptr<Matrix<double>> iterationMatrix = nullptr;
+        std::unique_ptr<Matrix<double>> actualIterationMatrix = nullptr;
         mutable std::shared_mutex renderDataMutex;
         std::unique_ptr<MB2RenderDataBase> renderData = nullptr;
         std::unique_ptr<ApproxTableCacheBase> approxTableCache = nullptr;
@@ -115,7 +117,7 @@ namespace merutilm::rff2 {
 
         RFF2 &operator=(RFF2 &&) = delete;
 
-        void update() override;
+        void update();
 
 
         static Settings genDefaultSettings();
@@ -196,7 +198,7 @@ namespace merutilm::rff2 {
 
         [[nodiscard]] std::unique_ptr<ApproxTableCacheBase> *getApproxTableCache() { return &approxTableCache; }
 
-        [[nodiscard]] AppRenderManagerRequests &getRequests() { return requests; }
+        [[nodiscard]] UpdateRequests &getRequests() { return requests; }
 
 
         void setCurrentPerturbator(std::unique_ptr<MB2RenderDataBase> data) {
@@ -207,8 +209,12 @@ namespace merutilm::rff2 {
         [[nodiscard]] BackgroundThreads &getBackgroundThreads() { return backgroundThreads; }
 
         [[nodiscard]] RFFDynamicMapBinary generateMap() const {
-            return {renderData->fractalSettings.general.logZoom, renderData->getReference()->longestPeriod(),
-                    renderData->fractalSettings.perturb.maxIteration, *iterationMatrix};
+            return {renderData->fractalSettings.general.logZoom,
+                    renderData->getReference()->longestPeriod(),
+                    renderData->fractalSettings.perturb.maxIteration,
+                    renderer->iterationStagingBufferContext->getData(),
+                    renderer->iterationStagingBufferContext->getWidth(),
+                    renderer->iterationStagingBufferContext->getHeight()};
         }
 
         [[nodiscard]] bool isIdleCompute() const { return idleCompute; }
@@ -217,7 +223,7 @@ namespace merutilm::rff2 {
 
         [[nodiscard]] uint64_t getCompletedRenderCount() const { return completedRenderCount; }
 
-        [[nodiscard]] const Matrix<double> *getIterationMatrix() const { return iterationMatrix.get(); }
+        [[nodiscard]] const Matrix<double> *getIterationMatrix() const { return actualIterationMatrix.get(); }
 
         [[nodiscard]] AutoExplorer &getAutoExplorer() { return autoExplorer; }
 
@@ -260,11 +266,11 @@ namespace merutilm::rff2 {
             requires std::is_base_of_v<Preset, P>
         void applyPreset(P &preset);
 
-        void onStart() override;
+        void onStart();
 
-        void onResize(VkExtent2D newExtent) override;
+        void onResize(VkExtent2D newExtent);
 
-        void onQuit() override;
+        void onQuit();
 
         VideoProgressInfo &getVideoProgressInfo() { return videoProgressInfo; }
 

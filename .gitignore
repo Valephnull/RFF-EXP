@@ -7,15 +7,15 @@
 *.o
 *.obj
 
-.idea
-cmake-build-debug
-cmake-build-release
+/.idea
+/cmake-build-debug
+/cmake-build-release
 /build/
 
-extern/imgui
-CMakeFiles
-bin
-out
+/extern/imgui
+/CMakeFiles
+/bin
+/out
 
 # Precompiled Headers
 *.gch
@@ -42,6 +42,8 @@ out
 *.app
 
 # Others
-apply_vkh.ps1
-update.ps1
+/apply_vkh.ps1
+/apply_vkh.sh
+/update.ps1
+/update.sh
 *.zip

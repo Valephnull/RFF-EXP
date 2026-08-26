@@ -81,7 +81,7 @@ namespace merutilm::rff2::SharedDescriptorTemplate {
             auto ubo = std::make_unique<vkh::Uniform>(core, std::move(infoManager),
                                                                 vkh::BufferLock::LOCK_UNLOCK, false);
             auto ssbo = std::make_unique<vkh::ShaderStorage>(core, std::move(bufferManager),
-                                                                vkh::BufferLock::LOCK_ONLY, false);
+                                                                vkh::BufferLock::LOCK_UNLOCK, false);
             descManager.appendUBO(BINDING_UBO_ITERATION_INFO, STAGE, std::move(ubo));
             descManager.appendSSBO(BINDING_SSBO_ITERATION_MATRIX, STAGE, std::move(ssbo));
 
@@ -157,7 +157,7 @@ namespace merutilm::rff2::SharedDescriptorTemplate {
 
     struct DescSlope final : public vkh::DescriptorTemplate {
         static constexpr uint32_t ID = 5;
-        static constexpr VkShaderStageFlags STAGE = VK_SHADER_STAGE_FRAGMENT_BIT;
+        static constexpr VkShaderStageFlags STAGE = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 
         static constexpr uint32_t BINDING_UBO_SLOPE = 0;
 

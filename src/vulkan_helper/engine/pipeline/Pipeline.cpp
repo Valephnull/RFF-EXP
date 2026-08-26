@@ -4,8 +4,8 @@
 #include "vulkan_helper/engine/pipeline/Pipeline.hpp"
 
 namespace merutilm::vkh {
-    Pipeline::Pipeline(Core &core, PipelineLayout &pipelineLayout, PipelineManager &&pipelineManager) :
-        CoreHandler(core), pipelineLayout(pipelineLayout), descriptors(std::move(pipelineManager.descriptors)),
+    Pipeline::Pipeline(Core &core, PipelineManager &&pipelineManager) :
+        CoreHandler(core), pipelineLayout(*pipelineManager.layout), specialization(std::move(pipelineManager.specialization)), descriptors(std::move(pipelineManager.descriptors)),
         shaderModules(std::move(pipelineManager.shaderModules)) {}
 
     Pipeline::~Pipeline() = default;
@@ -27,6 +27,8 @@ namespace merutilm::vkh {
     }
 
     void Pipeline::cleanup() {
-        vkDestroyPipeline(core.getLogicalDevice().getLogicalDeviceHandle(), pipeline, nullptr);
+        for (const auto pipeline : pipelines) {
+            vkDestroyPipeline(core.getLogicalDevice().getLogicalDeviceHandle(), pipeline, nullptr);
+        }
     }
 } // namespace merutilm::vkh

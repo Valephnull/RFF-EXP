@@ -31,6 +31,14 @@ namespace merutilm::rff2 {
 
         [[nodiscard]] complex<dex> normalized(const complex<dex> value) { return value.try_normalized_value(); }
 
+        [[nodiscard]] bool exactlyEqual(const dex &left, const dex &right) {
+            return left.exp2 == right.exp2 && left.mantissa == right.mantissa;
+        }
+
+        [[nodiscard]] bool exactlyEqual(const complex<dex> &left, const complex<dex> &right) {
+            return exactlyEqual(left.re, right.re) && exactlyEqual(left.im, right.im);
+        }
+
         [[nodiscard]] complex<dex> divideComplex(const complex<dex> numerator, const complex<dex> denominator) {
             const dex denominatorNorm = denominator.norm_sqr();
             if (denominatorNorm.is_zero())
@@ -201,7 +209,10 @@ namespace merutilm::rff2 {
                 // There is no fixed pass limit. Reject divergent motion or an exact
                 // finite-precision cycle so a pathological candidate cannot trap the UI.
                 if ((nextRefined - cursorOffsetFromReference).norm_sqr() > radiusSquared ||
-                    std::ranges::find(refinementHistory, nextRefined) != refinementHistory.end()) {
+                    std::ranges::any_of(refinementHistory,
+                                        [&nextRefined](const complex<dex> &previous) {
+                                            return exactlyEqual(previous, nextRefined);
+                                        })) {
                     return std::nullopt;
                 }
                 refinementHistory.push_back(refined);
@@ -231,9 +242,11 @@ namespace merutilm::rff2 {
     std::optional<MandelbrotFeatureFinder::Result>
     MandelbrotFeatureFinder::find(const MB2RenderDataBase &data, const complex<dex> &cursorOffsetFromReference,
                                   const dex searchRadius, const std::stop_token stopToken) {
-        if (const auto *light = dynamic_cast<const LightMB2RenderData *>(&data))
-            return findWithReference(*light, cursorOffsetFromReference, searchRadius, stopToken);
-        if (const auto *deep = dynamic_cast<const DeepMB2RenderData *>(&data))
+        if (const auto *normal = dynamic_cast<const NormalMB2RenderData *>(&data))
+            return findWithReference(*normal, cursorOffsetFromReference, searchRadius, stopToken);
+        if (const auto *wide = dynamic_cast<const DoubleMB2RenderData *>(&data))
+            return findWithReference(*wide, cursorOffsetFromReference, searchRadius, stopToken);
+        if (const auto *deep = dynamic_cast<const DexMB2RenderData *>(&data))
             return findWithReference(*deep, cursorOffsetFromReference, searchRadius, stopToken);
         return std::nullopt;
     }

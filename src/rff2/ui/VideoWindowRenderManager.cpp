@@ -22,13 +22,13 @@ namespace merutilm::rff2 {
     void VideoWindowRenderManager::applyCurrentDynamicMap(const RFFDynamicMapBinary &normal, const RFFDynamicMapBinary &zoomed,
                                                   const float currentFrame) const {
         wc.core.getLogicalDevice().waitDeviceIdle();
-        auto &normalI = normal.getMatrix();
+        auto &normalI = normal.iterations;
         if (currentFrame < 1) {
-            const std::vector<double> zoomedDefault(normalI.getLength());
-            renderer->compute2MapIterationStripe->setAllIterations(normalI.getCanvas(), zoomedDefault);
+            const std::vector<double> zoomedDefault(normalI.size());
+            renderer->compute2MapIterationStripe->setAllIterations(normalI, zoomedDefault);
         } else {
-            auto &zoomedI = zoomed.getMatrix();
-            renderer->compute2MapIterationStripe->setAllIterations(normalI.getCanvas(), zoomedI.getCanvas());
+            auto &zoomedI = zoomed.iterations;
+            renderer->compute2MapIterationStripe->setAllIterations(normalI, zoomedI);
         }
     }
 
@@ -121,6 +121,9 @@ namespace merutilm::rff2 {
                           VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT |
                                   VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
                                   VK_IMAGE_USAGE_STORAGE_BIT));
+        sharedImg.appendMultiframeImageContext(
+                MF_MAIN_RENDER_IMAGE_DEPTH,
+                iiiGetter(videoExtent, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT));
         sharedImg.appendMultiframeImageContext(MF_MAIN_RENDER_DOWNSAMPLED_IMAGE_PRIMARY,
                                                iiiGetter(blurredImageExtent, VK_FORMAT_R8G8B8A8_UNORM,
                                                          VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
@@ -138,7 +141,7 @@ namespace merutilm::rff2 {
         renderer->render();
     }
 
-    float VideoWindowRenderManager::calculateZoom(const float defaultZoomIncrement, const float currentFrame) const {
+    float VideoWindowRenderManager::calculateLogZoom(const float defaultZoomIncrement, const float currentFrame) const {
         if (currentFrame < 1) {
             const float r = 1 - currentFrame;
 
@@ -189,7 +192,7 @@ namespace merutilm::rff2 {
         vkh::BufferContext::unmapMemory(wc.core, dstBuffer);
         return VideoBufferCache(wc.core, std::move(dstBuffer), static_cast<int>(videoExtent.width),
                                 static_cast<int>(videoExtent.height),
-                                calculateZoom(targetSettings.video.data.defaultZoomIncrement, renderer->currentFrame));
+                                calculateLogZoom(targetSettings.video.data.defaultZoomIncrement, renderer->currentFrame));
     }
 
     void VideoWindowRenderManager::init() {

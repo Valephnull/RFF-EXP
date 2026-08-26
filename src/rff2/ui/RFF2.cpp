@@ -4,7 +4,6 @@
 
 #include "RFF2.hpp"
 
-#include "../calc/dex_exp.h"
 #include "../io/RFFLocationBinary.h"
 #include "../mb/MB2Locator.h"
 #include "../mb/MandelbrotFeatureFinder.hpp"
@@ -55,7 +54,7 @@ namespace merutilm::rff2 {
     }
 
     void RFF2::onResize(const VkExtent2D newExtent) {
-        Application::onResize(newExtent);
+        recreateContexts(newExtent);
         if (newExtent.width > 0 || newExtent.height > 0) {
             cancelGuidedZoomSearch();
             engine->getCore().getLogicalDevice().waitDeviceIdle();
@@ -65,6 +64,7 @@ namespace merutilm::rff2 {
             backgroundThreads.notifyAll();
         }
     }
+
 
     void RFF2::onQuit() {
         stopGuidedZoomSearchWorker();
@@ -78,8 +78,8 @@ namespace merutilm::rff2 {
 
     void RFF2::update() {
 
-        // Mouse-wheel input changes the smooth preview immediately, but CPU renders
-        // are coalesced. Never cancel and join a render for every wheel tick.
+        // Coalesce rapid wheel input so the preview remains responsive without
+        // cancelling and joining a full calculation for every wheel tick.
         constexpr double WHEEL_RENDER_DEBOUNCE_SECONDS = 0.09;
         const double now = rootWindowContext->getWindow()->getTime();
         if (wheelZoomRenderPending && idleCompute.load() &&
@@ -87,6 +87,7 @@ namespace merutilm::rff2 {
             wheelZoomRenderPending = false;
             requests.requestRecompute();
         }
+
 
         if (requests.defaultSettingsRequested) {
             applyDefaultSettings();
@@ -126,6 +127,8 @@ namespace merutilm::rff2 {
         crashRecovery.update(*this);
 
         invokeUpdaters();
+
+        std::scoped_lock lock(ptbWithComputeShaderMutex);
         renderer->render();
     }
 
@@ -155,7 +158,7 @@ namespace merutilm::rff2 {
                                                     .interiorDetectRadiusPower = 7,
                                                     .autoIterationMultiplier = 100,
                                                     .absoluteIterationMode = false}},
-                .render = {.clarityMultiplier = 0.25f, .fps = 60},
+                .render = {.clarityMultiplier = 0.25f, .fps = 60, .ptbWithComputeShader = true},
                 .shader = {.palette = ShdPalettePresets::LongRandom64().genPalette(),
                            .stripe = ShdStripePresets::Disabled().genStripe(),
                            .slope = ShdSlopePresets::Disabled().genSlope(),
@@ -163,7 +166,7 @@ namespace merutilm::rff2 {
                            .fog = ShdFogPresets::Disabled().genFog(),
                            .bloom = BloomPresets::Disabled().genBloom(),
                            .noiseReduction = {true, 2, 0.1f},
-                           .fractal3D = {true, 85, 0, 0, 10.f}},
+                           .fractal3D = {false, 85, 0, 1, 0, 10.f}},
                 .video = {.data = {.defaultZoomIncrement = 2, .isStatic = false},
                           .animation = {.overZoom = 2, .showText = true, .mps = 1},
                           .exportation = {.fps = 60, .bitrate = 9000}},
@@ -202,8 +205,7 @@ namespace merutilm::rff2 {
                            .fog = ShdFogPresets::Disabled().genFog(),
                            .bloom = BloomPresets::Disabled().genBloom(),
                            .noiseReduction = {true, 2, 0.1f},
-                            .fractal3D = {false, 85, 0, 0, 10.f}
-                },
+                           .fractal3D = {false, 85, 0, 1, 0, 10.f}},
                 .video = {.data = {.defaultZoomIncrement = 2, .isStatic = false},
                           .animation = {.overZoom = 2, .showText = true, .mps = 1},
                           .exportation = {.fps = 60, .bitrate = 9000}},
@@ -232,7 +234,7 @@ namespace merutilm::rff2 {
                          rootWindowContext->getSwapchain().getSwapchainExtent().height - my);
     }
 
-    dex RFF2::getDivisor(const Settings &settings) { return dex_exp::exp10(settings.fractal.general.logZoom); }
+    dex RFF2::getDivisor(const Settings &settings) { return rff_math::exp10(settings.fractal.general.logZoom); }
 
 
     uint16_t RFF2::calcIterationBufferWidth(const Settings &s) const {
@@ -251,6 +253,7 @@ namespace merutilm::rff2 {
 
     uint16_t RFF2::getIterationBufferHeight() const { return renderer->rg0->iterationPalette->iterHeight; }
 
+
     RFF2::GuidedZoomTarget RFF2::findGuidedZoomTarget(const GuidedZoomSearchRequest &request) const {
         std::shared_lock dataLock(renderDataMutex);
         const MB2RenderDataBase *data = renderData.get();
@@ -260,6 +263,8 @@ namespace merutilm::rff2 {
 
         const int width = request.width;
         const int height = request.height;
+        if (width <= 0 || height <= 0)
+            return {};
         const int cursorX = std::clamp(request.mouseX, 0, width - 1);
         const int cursorY = std::clamp(request.mouseY, 0, height - 1);
         const float clarity = request.clarity;
@@ -278,12 +283,10 @@ namespace merutilm::rff2 {
         GuidedZoomTarget selected = {};
         double selectedDistance = 0;
 
-        // Prefer Merutilm's auto-aim center when it is within the configured cursor
-        // radius. The Imagina-inspired nearby-feature search remains as a fallback.
         if (const std::unique_ptr<fixed_point_complex_i1> centerOffset = MB2Locator::findCenterOffset(*data)) {
             if (request.cancellation.stop_requested())
                 return {};
-            complex<dex> offsetFromCurrent = static_cast<complex<dex>>(*centerOffset) - perturbator->off;
+            const complex<dex> offsetFromCurrent = static_cast<complex<dex>>(*centerOffset) - perturbator->off;
             const auto [centerRe, centerIm] = static_cast<complex<double>>(offsetFromCurrent * dex(clarity) * divisor);
             const std::array centerPixel = {
                     static_cast<int>((centerRe < 0 ? std::round(centerRe) : std::ceil(centerRe)) + width / 2.0),
@@ -321,8 +324,9 @@ namespace merutilm::rff2 {
                                     static_cast<double>(height) / 2.0;
             const double distance =
                     std::hypot(featureX - static_cast<double>(cursorX), featureY - static_cast<double>(cursorY));
+            const bool equalSize = (feature->estimatedSize <=> selected.estimatedSize) == 0;
             if (!selected.found || feature->estimatedSize > selected.estimatedSize ||
-                (feature->estimatedSize == selected.estimatedSize && distance < selectedDistance)) {
+                (equalSize && distance < selectedDistance)) {
                 selected = {
                         static_cast<float>(featureX),
                         static_cast<float>(featureY),
@@ -513,8 +517,22 @@ namespace merutilm::rff2 {
 
 
     void RFF2::addListeners() {
-        Application::addListeners();
         auto &eventSystem = rootWindowContext->getWindow()->eventSystem;
+
+        eventSystem.applicationLifecycle.onUpdate.add([this] { update(); });
+
+        eventSystem.resize.onResize.add([this](const int w, const int h) {
+            const auto extent = VkExtent2D(w, h);
+            requests.requestResize(extent);
+        });
+
+        eventSystem.applicationLifecycle.onStart.add([this] { onStart(); });
+
+        eventSystem.applicationLifecycle.onQuit.add([this] {
+            rootWindowContext->core.getLogicalDevice().waitDeviceIdle();
+            onQuit();
+        });
+
 
         eventSystem.mouse.onMouseEnter.add([this] {
             mouseInsideWindow = true;
@@ -595,9 +613,6 @@ namespace merutilm::rff2 {
                             (scale * static_cast<double>(guidedZoomTarget.y) - static_cast<double>(miy)) *
                             inverseScaleDifference;
 
-                    // An off-centre zoom can move a feature to the stationary cursor
-                    // exactly. If that requires an anchor outside the view, leave this
-                    // wheel step cursor-centred instead of making a wild jump.
                     if (redirectedAnchorX >= 0.0 && redirectedAnchorX < getIterationBufferWidth() &&
                         redirectedAnchorY >= 0.0 && redirectedAnchorY < getIterationBufferHeight()) {
                         anchorX = static_cast<int16_t>(std::lround(redirectedAnchorX));
@@ -609,10 +624,6 @@ namespace merutilm::rff2 {
 
             zoom(anchorX, anchorY, increment, false);
 
-            // A queued search describes the pre-zoom view. Do not let a slow
-            // result arrive later and redirect a subsequent wheel step using
-            // stale coordinates. Cached targets are updated below and remain
-            // usable throughout a rapid wheel burst.
             if (guidedZoomSearchQueued)
                 cancelGuidedZoomSearch();
 
@@ -714,7 +725,7 @@ namespace merutilm::rff2 {
         const float dt = t - time;
         time = t;
 
-        if (canShowPreview && !wheelZoomRenderPending && !zoomAnimationInfo.aimChanged) {
+        if (canShowPreview && !zoomAnimationInfo.aimChanged) {
             renderer->iterationStagingBufferContext->fill();
             renderer->rg0->iterationPalette->applyMaxIteration();
             zoomAnimationInfo.reset();
@@ -753,7 +764,7 @@ namespace merutilm::rff2 {
         renderer->rccPresentPrepare->smoothZoom->setRescaledResolution({sWidth, sHeight});
         renderer->rg0->iterationPalette->resetIterationBuffer(iw, ih);
         renderer->rg1->fractal3d->resetBuffer(iw, ih);
-        iterationMatrix = std::make_unique<Matrix<double>>(iw, ih);
+        actualIterationMatrix = std::make_unique<Matrix<double>>(iw, ih);
         renderer->iterationStagingBufferContext = std::make_unique<GraphicsMatrixBuffer<double>>(
                 rootWindowContext->core, iw, ih, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
@@ -865,9 +876,7 @@ namespace merutilm::rff2 {
                 FnShader::fog(*this);
                 FnShader::bloom(*this);
                 FnShader::noiseReduction(*this);
-#ifndef NDEBUG
                 FnShader::fractal3D(*this);
-#endif
                 ImGui::EndDisabled();
                 ImGui::EndTabItem();
             }
@@ -959,6 +968,9 @@ namespace merutilm::rff2 {
                 iiiGetter(internalImageExtent, VK_FORMAT_R16G16B16A16_UNORM,
                           VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT |
                                   VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT));
+        sharedImg.appendMultiframeImageContext(
+                MF_MAIN_RENDER_IMAGE_DEPTH,
+                iiiGetter(internalImageExtent, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT));
         sharedImg.appendMultiframeImageContext(MF_MAIN_RENDER_DOWNSAMPLED_IMAGE_PRIMARY,
                                                iiiGetter(blurredImageExtent, VK_FORMAT_R8G8B8A8_UNORM,
                                                          VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
@@ -975,15 +987,15 @@ namespace merutilm::rff2 {
         rootWindowContext->core.getLogicalDevice().waitDeviceIdle();
         const uint32_t iw = getIterationBufferWidth();
         const uint32_t ih = getIterationBufferHeight();
-        if (iw != map.getMatrix().getWidth() || ih != map.getMatrix().getHeight()) {
+        if (iw != map.width || ih != map.height) {
             vkh::logger::log_err("Map size mismatch, {}x{} required but provided {}x{}", iw, ih,
-                                 map.getMatrix().getWidth(), map.getMatrix().getHeight());
+                                 map.width, map.height);
             return;
         }
 
-        renderer->rg0->iterationPalette->setMaxIteration(static_cast<double>(map.getMaxIteration()));
+        renderer->rg0->iterationPalette->setMaxIteration(static_cast<double>(map.maxIteration));
         renderer->rg0->iterationPalette->applyMaxIteration();
-        renderer->iterationStagingBufferContext->fill(map.getMatrix().getCanvas());
+        renderer->iterationStagingBufferContext->fill(map.iterations);
     }
 
     std::filesystem::path RFF2::getBackupLocationPath() {
@@ -1027,7 +1039,6 @@ namespace merutilm::rff2 {
 
     void RFF2::recomputeThreaded() {
 
-
         state.createThread([this] {
             const Settings s = this->settings; // clone the settings
             const auto start = rootWindowContext->getWindow()->getTime();
@@ -1061,6 +1072,7 @@ namespace merutilm::rff2 {
 
         // multiplying 1.01 to attract reference center to client center
         const std::array<int, 2> ib = iterationBufferConversion(settings, offDex * dex(1.01));
+
         double mouseWindowX = 0;
         double mouseWindowY = 0;
         glfwGetCursorPos(rootWindowContext->getWindow()->getWindow(), &mouseWindowX, &mouseWindowY);
@@ -1076,9 +1088,6 @@ namespace merutilm::rff2 {
     }
 
     void RFF2::beforeIterationFill() const {
-        if (settings.explore.autoMoveCursorToCenter) {
-            moveCursorToCenter();
-        }
         renderer->rg0->iterationPalette->setMaxIteration(
                 static_cast<double>(renderData->fractalSettings.perturb.maxIteration));
 
@@ -1135,12 +1144,16 @@ namespace merutilm::rff2 {
                                   actionPerSeriesApproxIteration);
         } else {
             renderData = nullptr;
-            if (logZoom > Constants::Fractal::ZOOM_DEADLINE) {
-                renderData = std::make_unique<DeepMB2RenderData>(
+            if (logZoom > Constants::Fractal::DB_ZOOM_DEADLINE) {
+                renderData = std::make_unique<DexMB2RenderData>(
+                        state, frt, approxTableCache, dcMax, exp10, capacity, 0, actionPerRefCalcIteration,
+                        actionPerSeriesApproxIteration, actionPerCreatingTableIteration);
+            } else if (logZoom > Constants::Fractal::NM_ZOOM_DEADLINE) {
+                renderData = std::make_unique<DoubleMB2RenderData>(
                         state, frt, approxTableCache, dcMax, exp10, capacity, 0, actionPerRefCalcIteration,
                         actionPerSeriesApproxIteration, actionPerCreatingTableIteration);
             } else {
-                renderData = std::make_unique<LightMB2RenderData>(
+                renderData = std::make_unique<NormalMB2RenderData>(
                         state, frt, approxTableCache, dcMax, exp10, capacity, 0, actionPerRefCalcIteration,
                         actionPerSeriesApproxIteration, actionPerCreatingTableIteration);
             }
@@ -1151,13 +1164,7 @@ namespace merutilm::rff2 {
             return false;
 
         size_t refLength = reference->length();
-        size_t mpaLen;
-        if (const auto t = dynamic_cast<LightMB2RenderData *>(renderData.get())) {
-            mpaLen = t->table->getLength();
-        }
-        if (const auto t = dynamic_cast<DeepMB2RenderData *>(renderData.get())) {
-            mpaLen = t->table->getLength();
-        }
+        size_t mpaLen = approxTableCache ? approxTableCache->tableSizeUsed : 0;
 
         setStatusMessage(Constants::Status::PERIOD_STATUS,
                          std::format("Period : {:L} ({:L}, {:L})", reference->longestPeriod(), refLength, mpaLen));
@@ -1173,75 +1180,139 @@ namespace merutilm::rff2 {
         if (state.interruptRequested())
             return false;
 
-        canShowPreview = true;
 
-        std::atomic renderPixelsCount = 0;
-        const uint16_t w = getIterationBufferWidth();
-        const uint16_t h = getIterationBufferHeight();
-        uint32_t len = static_cast<uint32_t>(w) * h;
+        if (const auto lightRef = dynamic_cast<NormalMB2Reference *>(renderData->getReference());
+            lightRef && s.render.ptbWithComputeShader && !s.fractal.mpa.useCompress && s.fractal.reference.compression.compressCriteria == 0) {
+            setStatusMessage(Constants::Status::RENDER_STATUS, "Computing...");
 
-        auto rendered = std::vector<bool>(len);
+            auto &ctx = renderer->rg0->iterationPalette->getResultIterationBuffer();
+            vkh::BufferContext dstBuffer = vkh::BufferContext::createContext(
+                    engine->getCore(),
+                    {.size = ctx.bufferSize,
+                     .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                     .properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT});
 
-        auto func = [&s, this, &renderPixelsCount, &rendered](const uint16_t x, const uint16_t y, const uint16_t xRes,
-                                                              const uint16_t yRes, float, float, const uint32_t i,
-                                                              double) {
-            assert(i < rendered.size());
-            rendered[i] = true;
-            const auto dc = offsetConversion(s, x, y);
-            const double iteration = renderData->getPerturbator()->iterate(dc);
+            {
+                std::scoped_lock lock(ptbWithComputeShaderMutex);
+                const vkh::ScopedNewCommandBufferExecutor executor(engine->getCore(),
+                                                                   rootWindowContext->getCommandPool());
 
-            renderer->iterationStagingBufferContext->set(x, y, iteration);
+                const auto cache = dynamic_cast<ApproxTableCache<float> *>(approxTableCache.get());
 
-            auto my = static_cast<int16_t>(y + 1);
-            while (my < yRes && !rendered[my * xRes + x]) {
-                renderer->iterationStagingBufferContext->set(x, my, iteration);
-                ++my;
+#ifndef NDEBUG
+                const auto tableData = cache ? cache->mpaTable.data() : nullptr;
+                const auto mapperData = cache ? cache->flattenIndexMapper.data() : nullptr;
+#else
+                const auto tableData = cache ? cache->mpaTable : nullptr;
+                const auto mapperData = cache ? cache->flattenIndexMapper : nullptr;
+#endif
+                const auto tableLen = cache ? cache->tableSizeUsed : 0;
+                const auto mapperLen = cache ? cache->mapperSizeUsed : 0;
+
+                renderer->computeIterate->setRenderMeta(
+                        lightRef->refOrbit, static_cast<complex<float>>(renderData->getPerturbator()->off),
+                        static_cast<uint32_t>(renderData->fractalSettings.perturb.maxIteration),
+                        s.fractal.general.logZoom, s.fractal.general.bailout, s.render.clarityMultiplier, s.render.mpaModeForComputeShader, s.fractal.perturb.decimalizeIterationMethod,
+                        tableData, tableLen, mapperData, mapperLen, s.fractal.mpa.mpaSelectionMethod);
+
+                renderer->computeIterate->setExtent(VkExtent2D{getIterationBufferWidth(), getIterationBufferHeight()});
+                renderer->computeIterate->cmdRender(executor.getCommandBufferHandle(), 0, {});
+
+                vkh::BarrierUtils::cmdBufferMemoryBarrier(executor.getCommandBufferHandle(), VK_ACCESS_MEMORY_WRITE_BIT,
+                                                          VK_ACCESS_TRANSFER_READ_BIT, ctx.buffer, 0, ctx.bufferSize,
+                                                          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                                          VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+                vkh::BufferImageContextUtils::cmdCopyBuffer(executor.getCommandBufferHandle(), ctx, dstBuffer);
             }
 
-            ++renderPixelsCount;
-            return iteration;
-        };
-        auto previewer =
-                ParallelArrayDispatcher<double>(state, *iterationMatrix, s.fractal.general.threads, std::move(func));
+            canShowPreview = true;
+            vkh::BufferContext::mapMemory(engine->getCore(), dstBuffer);
+            memcpy(renderer->iterationStagingBufferContext->getData().data(), dstBuffer.mappedMemory,
+                   dstBuffer.bufferSize);
+            renderer->iterationStagingBufferContext->markUpdate();
 
-        // renderer->iterationStagingBufferContext->fillZero();
+            actualIterationMatrix = std::make_unique<Matrix<double>>(
+                    getIterationBufferWidth(), getIterationBufferHeight(),
+                    renderer->iterationStagingBufferContext->getData());
 
-        auto statusThread = std::jthread([&renderPixelsCount, len, this, startTime](const std::stop_token &stop) {
-            static float time = rootWindowContext->getWindow()->getTime();
-            while (!stop.stop_requested()) {
-                const float elapsed = rootWindowContext->getWindow()->getTime() - time;
-                if (elapsed > Constants::Status::UI_REFRESH_INTERVAL) {
-                    time = rootWindowContext->getWindow()->getTime();
-                    float ratio = static_cast<float>(renderPixelsCount.load()) / static_cast<float>(len) * 100;
-                    setStatusMessage(Constants::Status::TIME_STATUS,
-                                     std::format("Time : {}", Utilities::formatTime(time - startTime)));
-                    setStatusMessage(Constants::Status::RENDER_STATUS, std::format("Calculation : {:.3f}%", ratio));
+            vkh::BufferContext::destroyContext(engine->getCore(), dstBuffer);
+
+            const float time = rootWindowContext->getWindow()->getTime();
+            setStatusMessage(Constants::Status::TIME_STATUS,
+                             std::format("Time : {}", Utilities::formatTime(time - startTime)));
+
+
+        } else {
+
+
+            std::atomic renderPixelsCount = 0;
+            const uint16_t w = getIterationBufferWidth();
+            const uint16_t h = getIterationBufferHeight();
+            uint32_t len = static_cast<uint32_t>(w) * h;
+
+            auto rendered = std::vector<bool>(len);
+
+            auto func = [&s, this, &renderPixelsCount, &rendered](const uint16_t x, const uint16_t y,
+                                                                  const uint16_t xRes, const uint16_t yRes, float,
+                                                                  float, const uint32_t i, double) {
+                assert(i < rendered.size());
+                rendered[i] = true;
+                const auto dc = offsetConversion(s, x, y);
+                const double iteration = renderData->getPerturbator()->iterate(dc);
+
+                renderer->iterationStagingBufferContext->set(x, y, iteration);
+
+                auto my = static_cast<int16_t>(y + 1);
+                while (my < yRes && !rendered[my * xRes + x]) {
+                    renderer->iterationStagingBufferContext->set(x, my, iteration);
+                    ++my;
                 }
-            }
-        });
+
+                ++renderPixelsCount;
+                return iteration;
+            };
+            auto previewer = ParallelArrayDispatcher<double>(state, *actualIterationMatrix, s.fractal.general.threads,
+                                                             std::move(func));
 
 
-        previewer.dispatch();
+            auto statusThread = std::jthread([&renderPixelsCount, len, this, startTime](const std::stop_token &stop) {
+                static float time = rootWindowContext->getWindow()->getTime();
+                while (!stop.stop_requested()) {
+                    const float elapsed = rootWindowContext->getWindow()->getTime() - time;
+                    if (elapsed > Constants::Status::UI_REFRESH_INTERVAL) {
+                        time = rootWindowContext->getWindow()->getTime();
+                        float ratio = static_cast<float>(renderPixelsCount.load()) / static_cast<float>(len) * 100;
+                        setStatusMessage(Constants::Status::TIME_STATUS,
+                                         std::format("Time : {}", Utilities::formatTime(time - startTime)));
+                        setStatusMessage(Constants::Status::RENDER_STATUS, std::format("Calculation : {:.3f}%", ratio));
+                    }
+                }
+            });
 
-        statusThread.request_stop();
-        statusThread.join();
 
-        if (state.interruptRequested())
-            return false;
+            canShowPreview = true;
+            previewer.dispatch();
 
-        const auto syncer = ParallelDispatcher(
-                state, w, h, s.fractal.general.threads,
-                [this](const uint16_t x, const uint16_t y, uint16_t, uint16_t, float, float, uint32_t) {
-                    renderer->iterationStagingBufferContext->set(x, y, (*iterationMatrix)(x, y));
-                });
+            statusThread.request_stop();
+            statusThread.join();
 
-        syncer.dispatch();
+            if (state.interruptRequested())
+                return false;
 
-        if (state.interruptRequested())
-            return false;
+            const auto syncer = ParallelDispatcher(
+                    state, w, h, s.fractal.general.threads,
+                    [this](const uint16_t x, const uint16_t y, uint16_t, uint16_t, float, float, uint32_t) {
+                        renderer->iterationStagingBufferContext->set(x, y, (*actualIterationMatrix)(x, y));
+                    });
+
+            syncer.dispatch();
+
+            if (state.interruptRequested())
+                return false;
+        }
 
         setStatusMessage(Constants::Status::RENDER_STATUS, "Done");
-
         return true;
     }
 

@@ -58,10 +58,7 @@ namespace merutilm::rff2 {
     }
     void FnExplore::moveCursorToCenter(RFF2 &app) {
         ExploreSettings &explore = app.getSettings().explore;
-        if (ImGui::Checkbox("Guided Zoom", &explore.autoMoveCursorToCenter)) {
-            if (explore.autoMoveCursorToCenter)
-                app.moveCursorToCenter();
-        }
+        ImGui::Checkbox("Guided Zoom", &explore.autoMoveCursorToCenter);
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Aim inward zooms at Merutilm's detected center; nearby feature search is used as a fallback");
         if (explore.autoMoveCursorToCenter) {
