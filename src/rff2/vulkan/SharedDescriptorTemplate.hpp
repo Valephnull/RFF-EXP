@@ -261,26 +261,24 @@ namespace merutilm::rff2::SharedDescriptorTemplate {
         }
     };
 
-    struct DescNoiseReduction final : public vkh::DescriptorTemplate {
+    struct DescSampling final : public vkh::DescriptorTemplate {
         static constexpr uint32_t ID = 9;
-        static constexpr VkShaderStageFlags STAGE = VK_SHADER_STAGE_FRAGMENT_BIT;
+        static constexpr VkShaderStageFlags STAGE = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
 
-        static constexpr uint32_t BINDING_UBO_NOISE_REDUCTION = 0;
+        static constexpr uint32_t BINDING_UBO_SAMPLING = 0;
 
-        static constexpr uint32_t TARGET_NOISE_REDUCTION_USE = 0;
-        static constexpr uint32_t TARGET_NOISE_REDUCTION_SIMILAR_COUNT_THRESHOLD = 1;
-        static constexpr uint32_t TARGET_NOISE_REDUCTION_DIFFERENCE_THRESHOLD = 2;
+        static constexpr uint32_t TARGET_SAMPLING_BILINEAR = 0;
+        static constexpr uint32_t TARGET_SAMPLING_COUNT = 1;
 
 
         void configure(vkh::Core &core,
                                       std::vector<vkh::DescriptorManager> &managers) override {
             auto bufferManager = vkh::HostDataObjectManager();
-            bufferManager.reserve<bool>(TARGET_NOISE_REDUCTION_USE, 3);
-            bufferManager.reserve<uint32_t>(TARGET_NOISE_REDUCTION_SIMILAR_COUNT_THRESHOLD);
-            bufferManager.reserve<float>(TARGET_NOISE_REDUCTION_DIFFERENCE_THRESHOLD);
+            bufferManager.reserve<bool>(TARGET_SAMPLING_BILINEAR, 3);
+            bufferManager.reserve<uint32_t>(TARGET_SAMPLING_COUNT);
             auto ubo = std::make_unique<vkh::Uniform>(core, std::move(bufferManager), vkh::BufferLock::LOCK_UNLOCK, false);
             auto descManager = vkh::DescriptorManager();
-            descManager.appendUBO(BINDING_UBO_NOISE_REDUCTION, STAGE, std::move(ubo));
+            descManager.appendUBO(BINDING_UBO_SAMPLING, STAGE, std::move(ubo));
             managers.emplace_back(std::move(descManager));
         }
     };

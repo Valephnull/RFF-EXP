@@ -4,6 +4,8 @@
 
 #include "CPC2MapIterationStripe.hpp"
 
+#include <algorithm>
+
 #include "../settings/ShdPaletteSettings.h"
 #include "SharedDescriptorTemplate.hpp"
 #include "SharedImageContextIndices.hpp"
@@ -20,12 +22,14 @@ namespace merutilm::rff2 {
         auto &stripeDesc = getDescriptor(SET_STRIPE);
         auto &timeDesc = getDescriptor(SET_TIME);
         auto &vidDesc = getDescriptor(SET_VIDEO);
-        writeDescriptorMF([&iterDesc, &stripeDesc, &timeDesc, &vidDesc](vkh::DescriptorUpdateQueue &queue,
-                                                                        const uint32_t frameIndex) {
+        auto &samplingDesc = getDescriptor(SET_SAMPLING);
+        writeDescriptorMF([&iterDesc, &stripeDesc, &timeDesc, &vidDesc, &samplingDesc](
+                                  vkh::DescriptorUpdateQueue &queue, const uint32_t frameIndex) {
             iterDesc.queue(queue, frameIndex, {}, {DescIteration::BINDING_UBO_ITERATION_INFO});
             stripeDesc.queue(queue, frameIndex, {}, {DescStripe::BINDING_UBO_STRIPE});
             timeDesc.queue(queue, frameIndex, {}, {DescTime::BINDING_UBO_TIME});
             vidDesc.queue(queue, frameIndex, {}, {DescVideo::BINDING_UBO_VIDEO});
+            samplingDesc.queue(queue, frameIndex, {}, {DescSampling::BINDING_UBO_SAMPLING});
         });
     }
 
@@ -90,6 +94,15 @@ namespace merutilm::rff2 {
         stripeUBOHost.set(DescStripe::TARGET_STRIPE_ANIMATION_SPEED, stripe.animationSpeed);
         stripeUBOHost.set(DescStripe::TARGET_STRIPE_ITERATION_COLORING, stripe.iterationColoring);
         stripeUBO.update();
+    }
+
+    void CPC2MapIterationStripe::setSampling(const ShdSamplingSettings &sampling) const {
+        using namespace SharedDescriptorTemplate;
+        auto &samplingUBO = getDescriptor(SET_SAMPLING).get<vkh::Uniform>(0, DescSampling::BINDING_UBO_SAMPLING);
+        auto &host = samplingUBO.getHostObject();
+        host.set<bool>(DescSampling::TARGET_SAMPLING_BILINEAR, sampling.bilinear);
+        host.set<uint32_t>(DescSampling::TARGET_SAMPLING_COUNT, std::clamp(sampling.sampleCount, 1u, 256u));
+        samplingUBO.update();
     }
 
 
@@ -193,5 +206,6 @@ namespace merutilm::rff2 {
         appendUniqueDescriptor(SET_OUTPUT_IMAGE, descriptors, std::move(outputManager));
         appendDescriptor<DescIteration>(SET_OUTPUT_ITERATION, descriptors);
         appendDescriptor<DescStripe>(SET_STRIPE, descriptors);
+        appendDescriptor<DescSampling>(SET_SAMPLING, descriptors);
     }
 } // namespace merutilm::rff2

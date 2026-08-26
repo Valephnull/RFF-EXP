@@ -406,30 +406,19 @@ namespace merutilm::rff2 {
             ImGui::End();
         }
     }
-    void FnShader::noiseReduction(RFF2 &app) {
-        static bool enabled = false;
+    void FnShader::sampling(RFF2 &app) {
+        auto &[bilinear, sampleCount] = app.getSettings().shader.sampling;
+        if (ImGui::Checkbox("Bilinear", &bilinear))
+            app.getRequests().requestShader();
 
-        ImGui::Checkbox("Noise Reduction", &enabled);
-        if (enabled) {
-            ImGui::Begin("Noise Reduction");
-            auto &[use, similarCountThreshold, differenceThreshold] = app.getSettings().shader.noiseReduction;
-
-            if (ImGui::Checkbox("Use", &use)) {
-                app.getRequests().requestShader();
-            }
-            constexpr uint32_t min = 0;
-            constexpr uint32_t max = 8;
-            if (ImGui::SliderScalar("Similar Pixel Count Threshold", ImGuiDataType_U32, &similarCountThreshold, &min,
-                                    &max)) {
-                similarCountThreshold = std::clamp(similarCountThreshold, min, max);
-                app.getRequests().requestShader();
-            }
-            if (ImGui::SliderFloat("Difference Threshold", &differenceThreshold, 0, 1)) {
-                app.getRequests().requestShader();
-            }
-
-            ImGui::End();
+        constexpr uint32_t minimumSamples = 1;
+        constexpr uint32_t maximumSamples = 256;
+        if (ImGui::InputScalar("Samples", ImGuiDataType_U32, &sampleCount)) {
+            sampleCount = std::clamp(sampleCount, minimumSamples, maximumSamples);
+            app.getRequests().requestShader();
         }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Stochastic samples per pixel (1-256)");
     }
 
     void FnShader::fractal3D(RFF2 &app) {

@@ -4,6 +4,8 @@
 
 #include "GPCStripe.hpp"
 
+#include <algorithm>
+
 #include "../settings/ShdStripeSettings.h"
 #include "SharedDescriptorTemplate.hpp"
 #include "SharedImageContextIndices.hpp"
@@ -36,10 +38,20 @@ namespace merutilm::rff2 {
 
     }
 
+    void GPCStripe::setSampling(const ShdSamplingSettings &sampling) const {
+        using namespace SharedDescriptorTemplate;
+        auto &samplingUBO = getDescriptor(SET_SAMPLING).get<vkh::Uniform>(0, DescSampling::BINDING_UBO_SAMPLING);
+        auto &host = samplingUBO.getHostObject();
+        host.set<bool>(DescSampling::TARGET_SAMPLING_BILINEAR, sampling.bilinear);
+        host.set<uint32_t>(DescSampling::TARGET_SAMPLING_COUNT, std::clamp(sampling.sampleCount, 1u, 256u));
+        samplingUBO.update();
+    }
+
     void GPCStripe::pipelineInitialized() {
         using namespace SharedDescriptorTemplate;
         writeDescriptorMF([this](vkh::DescriptorUpdateQueue &queue, const uint32_t frameIndex) {
             getDescriptor(SET_STRIPE).queue(queue, frameIndex, {}, {DescStripe::BINDING_UBO_STRIPE});
+            getDescriptor(SET_SAMPLING).queue(queue, frameIndex, {}, {DescSampling::BINDING_UBO_SAMPLING});
         });
     }
 
@@ -88,5 +100,6 @@ namespace merutilm::rff2 {
         appendDescriptor<DescIteration>(SET_ITERATION, descriptors);
         appendDescriptor<DescStripe>(SET_STRIPE, descriptors);
         appendDescriptor<DescTime>(SET_TIME, descriptors);
+        appendDescriptor<DescSampling>(SET_SAMPLING, descriptors);
     }
 }

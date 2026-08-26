@@ -4,6 +4,8 @@
 
 #include "../vulkan/GPCIterationPalette.hpp"
 
+#include <algorithm>
+
 #include "../settings/ShdPaletteSettings.h"
 #include "../ui/Utilities.h"
 #include "SharedDescriptorTemplate.hpp"
@@ -95,14 +97,26 @@ namespace merutilm::rff2 {
         });
     }
 
+    void GPCIterationPalette::setSampling(const ShdSamplingSettings &sampling) const {
+        using namespace SharedDescriptorTemplate;
+        auto &samplingUBO = getDescriptor(SET_SAMPLING).get<vkh::Uniform>(0, DescSampling::BINDING_UBO_SAMPLING);
+        auto &host = samplingUBO.getHostObject();
+        host.set<bool>(DescSampling::TARGET_SAMPLING_BILINEAR, sampling.bilinear);
+        host.set<uint32_t>(DescSampling::TARGET_SAMPLING_COUNT, std::clamp(sampling.sampleCount, 1u, 256u));
+        samplingUBO.update();
+    }
+
 
     void GPCIterationPalette::pipelineInitialized() {
         using namespace SharedDescriptorTemplate;
         auto &timeDesc = getDescriptor(SET_TIME);
         auto &iterDesc = getDescriptor(SET_ITERATION);
-        writeDescriptorMF([&timeDesc, &iterDesc](vkh::DescriptorUpdateQueue &queue, const uint32_t frameIndex) {
+        auto &samplingDesc = getDescriptor(SET_SAMPLING);
+        writeDescriptorMF([&timeDesc, &iterDesc, &samplingDesc](vkh::DescriptorUpdateQueue &queue,
+                                                                const uint32_t frameIndex) {
             timeDesc.queue(queue, frameIndex, {}, {DescTime::BINDING_UBO_TIME});
             iterDesc.queue(queue, frameIndex, {}, {DescIteration::BINDING_UBO_ITERATION_INFO});
+            samplingDesc.queue(queue, frameIndex, {}, {DescSampling::BINDING_UBO_SAMPLING});
         });
     }
 
@@ -120,5 +134,6 @@ namespace merutilm::rff2 {
         appendDescriptor<DescIteration>(SET_ITERATION, descriptors);
         appendDescriptor<DescPalette>(SET_PALETTE, descriptors);
         appendDescriptor<DescTime>(SET_TIME, descriptors);
+        appendDescriptor<DescSampling>(SET_SAMPLING, descriptors);
     }
 } // namespace merutilm::rff2

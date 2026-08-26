@@ -4,7 +4,7 @@
 
 #pragma once
 #include "GPCBloom.hpp"
-#include "GPCNoiseReduction.hpp"
+#include "GPCImageCopy.hpp"
 #include "SharedImageContextIndices.hpp"
 #include "vulkan_helper/engine/graphics/RenderPassGraphGenerator.hpp"
 
@@ -17,7 +17,7 @@ namespace merutilm::rff2 {
 
     public:
         GPCBloom *bloom = nullptr;
-        GPCNoiseReduction *noiseReduction = nullptr;
+        GPCImageCopy *imageCopy = nullptr;
 
         using RenderPassGraphGenerator::RenderPassGraphGenerator;
 
@@ -63,7 +63,7 @@ namespace merutilm::rff2 {
                                       RendererUtils::SAMPLER_READ_DEPENDENCY, RendererUtils::INPUT_REF_INFO},
                                      RendererUtils::DEFAULT_DESC_PICKER);
 
-            registerPipeline(&noiseReduction, {bloomNode},
+            registerPipeline(&imageCopy, {bloomNode},
                              {resultAttachment, RendererUtils::COLOR_REF_INFO, std::nullopt, std::nullopt},
                              RendererUtils::DEFAULT_DESC_PICKER);
         }

@@ -5,6 +5,7 @@
 #pragma once
 #include <vulkan_helper/engine/configurator/ComputePipelineConfigurator.hpp>
 #include "../settings/ShdPaletteSettings.h"
+#include "../settings/ShdSamplingSettings.hpp"
 #include "../settings/ShdStripeSettings.h"
 
 namespace merutilm::rff2 {
@@ -22,6 +23,7 @@ namespace merutilm::rff2 {
         static constexpr uint32_t BINDING_OUTPUT_MERGED_IMAGE = 0;
         static constexpr uint32_t SET_OUTPUT_ITERATION = 5;
         static constexpr uint32_t SET_STRIPE = 6;
+        static constexpr uint32_t SET_SAMPLING = 7;
 
         explicit CPC2MapIterationStripe(vkh::Engine &engine, vkh::WindowContext &wc)
             : ComputePipelineConfigurator(engine, wc, "vk_2_map_iter_stripe.comp") {
@@ -52,6 +54,8 @@ namespace merutilm::rff2 {
         void setPalette(const ShdPaletteSettings &palette) const;
 
         void setStripe(const ShdStripeSettings &stripe) const;
+
+        void setSampling(const ShdSamplingSettings &sampling) const;
 
         void setDefaultZoomIncrement(float defaultZoomIncrement) const;
 

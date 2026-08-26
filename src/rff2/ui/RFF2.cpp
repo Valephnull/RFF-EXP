@@ -165,7 +165,7 @@ namespace merutilm::rff2 {
                            .color = ShdColorPresets::Disabled().genColor(),
                            .fog = ShdFogPresets::Disabled().genFog(),
                            .bloom = BloomPresets::Disabled().genBloom(),
-                           .noiseReduction = {true, 2, 0.1f},
+                           .sampling = {true, 16},
                            .fractal3D = {false, 85, 0, 1, 0, 10.f}},
                 .video = {.data = {.defaultZoomIncrement = 2, .isStatic = false},
                           .animation = {.overZoom = 2, .showText = true, .mps = 1},
@@ -204,7 +204,7 @@ namespace merutilm::rff2 {
                            .color = ShdColorPresets::Disabled().genColor(),
                            .fog = ShdFogPresets::Disabled().genFog(),
                            .bloom = BloomPresets::Disabled().genBloom(),
-                           .noiseReduction = {true, 2, 0.1f},
+                           .sampling = {true, 16},
                            .fractal3D = {false, 85, 0, 1, 0, 10.f}},
                 .video = {.data = {.defaultZoomIncrement = 2, .isStatic = false},
                           .animation = {.overZoom = 2, .showText = true, .mps = 1},
@@ -741,11 +741,12 @@ namespace merutilm::rff2 {
     void RFF2::applyShaderSettings(const Settings &s) const {
         rootWindowContext->core.getLogicalDevice().waitDeviceIdle();
         renderer->rg0->iterationPalette->setPalette(s.shader.palette);
+        renderer->rg0->iterationPalette->setSampling(s.shader.sampling);
         renderer->rg0->stripe->setStripe(s.shader.stripe);
+        renderer->rg0->stripe->setSampling(s.shader.sampling);
         renderer->rg0->color->setColor(s.shader.color);
         renderer->rg3->fog->setFog(s.shader.fog);
         renderer->rg4->bloom->setBloom(s.shader.bloom);
-        renderer->rg4->noiseReduction->setNoiseReduction(s.shader.noiseReduction);
         renderer->rg1->fractal3d->setFractal3D(s.shader.fractal3D);
     }
 
@@ -875,7 +876,7 @@ namespace merutilm::rff2 {
                 FnShader::color(*this);
                 FnShader::fog(*this);
                 FnShader::bloom(*this);
-                FnShader::noiseReduction(*this);
+                FnShader::sampling(*this);
                 FnShader::fractal3D(*this);
                 ImGui::EndDisabled();
                 ImGui::EndTabItem();

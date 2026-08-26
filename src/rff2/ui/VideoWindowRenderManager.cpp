@@ -42,10 +42,10 @@ namespace merutilm::rff2 {
         renderer->compute2MapIterationStripe->set2MapSize(videoExtent);
         renderer->compute2MapIterationStripe->setDefaultZoomIncrement(targetSettings.video.data.defaultZoomIncrement);
         renderer->compute2MapIterationStripe->setStripe(targetSettings.shader.stripe);
+        renderer->compute2MapIterationStripe->setSampling(targetSettings.shader.sampling);
         renderer->rg2->color->setColor(targetSettings.shader.color);
         renderer->rg3->fog->setFog(targetSettings.shader.fog);
         renderer->rg4->bloom->setBloom(targetSettings.shader.bloom);
-        renderer->rg4->noiseReduction->setNoiseReduction(targetSettings.shader.noiseReduction);
     }
 
     void VideoWindowRenderManager::setTime(const float currentSec) const { renderer->currentSec = currentSec; }
