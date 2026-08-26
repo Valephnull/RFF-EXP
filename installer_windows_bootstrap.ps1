@@ -123,6 +123,7 @@ $Packages = @(
     "mingw-w64-clang-x86_64-glfw",
     "mingw-w64-clang-x86_64-opencv",
     "mingw-w64-clang-x86_64-openssl",
+    "mingw-w64-clang-x86_64-vulkan-headers",
     "mingw-w64-clang-x86_64-shaderc"
 ) -join " "
 
