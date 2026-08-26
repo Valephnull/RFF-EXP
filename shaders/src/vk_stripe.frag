@@ -29,8 +29,14 @@ layout (location = 0) out vec4 color;
 void main() {
 
     ivec2 iter_coord = ivec2(gl_FragCoord.xy);
-    double iteration = sample_pixel_iteration(iter_coord);
-    float multiplier = stripe_get_multiplier(iteration);
+    vec2 center = vec2(iter_coord) + vec2(0.5);
+    uint sample_count = clamp(sampling_settings.sample_count, 1u, MAX_STOCHASTIC_SAMPLES);
+    float multiplier_total = 0.0;
+    for (uint sample_index = 0u; sample_index < sample_count; ++sample_index) {
+        vec2 jitter = sample_count > 1u ? stochastic_pixel_offset(iter_coord, sample_index) : vec2(0.0);
+        multiplier_total += stripe_get_multiplier(sample_iteration(center + jitter));
+    }
+    float multiplier = multiplier_total / float(sample_count);
 
     color = vec4(texelFetch(canvas, ivec2(gl_FragCoord.xy), 0).rgb * multiplier, 1);
 }

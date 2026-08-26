@@ -13,13 +13,16 @@ uint sampling_hash(uint value) {
 }
 
 float sampling_random(uint value) {
-    return float(sampling_hash(value)) * (1.0 / 4294967296.0);
+    return float(sampling_hash(value) & 0x00ffffffu) * (1.0 / 16777216.0);
 }
 
 vec2 stochastic_pixel_offset(ivec2 pixel, uint sample_index) {
-    uint seed = uint(pixel.x) * 0x1f123bb5u ^ uint(pixel.y) * 0x5f356495u ^
-                sample_index * 0x9e3779b9u;
-    return vec2(sampling_random(seed), sampling_random(seed ^ 0x68bc21ebu)) - 0.5;
+    uint seed = sampling_hash(uint(pixel.x) * 0x9e3779b9u ^
+                              uint(pixel.y) * 0x85ebca6bu ^ 0xc2b2ae35u);
+    vec2 rotation = vec2(sampling_random(seed ^ 0x68bc21ebu),
+                         sampling_random(seed ^ 0x02e5be93u));
+    vec2 sequence = (float(sample_index) + 0.5) * vec2(0.7548776662, 0.5698402910);
+    return fract(rotation + sequence) - 0.5;
 }
 
 #endif

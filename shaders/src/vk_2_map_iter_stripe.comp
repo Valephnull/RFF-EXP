@@ -85,6 +85,7 @@ void main() {
     float zoomed_scale = pow(video_settings.default_zoom_increment, r);
     uint sample_count = clamp(sampling_settings.sample_count, 1u, MAX_STOCHASTIC_SAMPLES);
     double iteration_total = 0.0;
+    vec3 color_total = vec3(0.0);
 
     for (uint sample_index = 0u; sample_index < sample_count; ++sample_index) {
         vec2 jitter = sample_count > 1u ? stochastic_pixel_offset(output_coord, sample_index) : vec2(0.0);
@@ -92,21 +93,27 @@ void main() {
         vec2 normal_coord = relative_coord / normal_scale + center - vec2(0.5);
         vec2 zoomed_coord = relative_coord / zoomed_scale + center - vec2(0.5);
 
-        double iteration = get_iteration_normal(normal_coord);
+        double normal_iteration = get_iteration_normal(normal_coord);
+        double output_iteration = normal_iteration;
+        vec3 sample_color = palette_get_color(normal_iteration).rgb * stripe_get_multiplier(normal_iteration);
         bool zoomed_valid = zoomed_coord.x >= 0.0 && zoomed_coord.y >= 0.0 &&
                             zoomed_coord.x < float(iteration_info_settings.extent.x - 1) &&
                             zoomed_coord.y < float(iteration_info_settings.extent.y - 1);
         if (zoomed_valid) {
             double zoomed_iteration = get_iteration_zoomed(zoomed_coord);
-            if (zoomed_iteration != 0.0)
-                iteration = iteration * double(-r) + zoomed_iteration * double(r + 1.0);
+            if (zoomed_iteration != 0.0) {
+                output_iteration = zoomed_iteration;
+                vec3 zoomed_color = palette_get_color(zoomed_iteration).rgb *
+                                    stripe_get_multiplier(zoomed_iteration);
+                sample_color = mix(sample_color, zoomed_color, r + 1.0);
+            }
         }
 
-        iteration_total += iteration;
+        iteration_total += output_iteration;
+        color_total += sample_color;
     }
 
     double iteration = iteration_total / double(sample_count);
     set_iteration_output(output_coord, iteration);
-    imageStore(merged_image_output, output_coord,
-               vec4(palette_get_color(iteration).rgb * stripe_get_multiplier(iteration), 1.0));
+    imageStore(merged_image_output, output_coord, vec4(color_total / float(sample_count), 1.0));
 }
