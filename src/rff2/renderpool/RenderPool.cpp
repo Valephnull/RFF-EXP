@@ -40,6 +40,7 @@ namespace merutilm::rff2 {
             uint64_t jobId = 0;
             uint32_t frameId = 0;
             float logZoom = 0;
+            uint64_t referenceGeneration = 0;
             uint64_t workerId = 0;
             std::string workerName;
         };
@@ -124,13 +125,14 @@ namespace merutilm::rff2 {
             writer.integer(task.jobId);
             writer.integer(task.frameId);
             writer.floating(task.logZoom);
+            writer.integer(task.referenceGeneration);
             return writer.take();
         }
 
         bool decodeTask(const std::span<const std::byte> bytes, PoolTask &task) {
             RenderPoolBinaryReader reader(bytes);
             return reader.integer(task.jobId) && reader.integer(task.frameId) && reader.floating(task.logZoom) &&
-                   reader.finished();
+                   reader.integer(task.referenceGeneration) && reader.finished();
         }
 
         std::vector<std::byte> encodeWorkerState(const PoolTask &task, const RenderPoolFrameState state) {
@@ -337,6 +339,8 @@ namespace merutilm::rff2 {
         VkExtent2D savedWindowExtent{};
         uint32_t localThreads = 1;
         double lastTaskRequest = -10;
+        uint64_t referenceGeneration = 0;
+        std::optional<uint64_t> localReferenceGeneration;
 
         Impl() {
             const std::string workerName = defaultWorkerName();
@@ -356,6 +360,8 @@ namespace merutilm::rff2 {
             workerCompletedFrames = 0;
             queuedTask.reset();
             poolId.clear();
+            referenceGeneration = 0;
+            localReferenceGeneration.reset();
         }
 
         void pollUpnp() {
@@ -478,6 +484,7 @@ namespace merutilm::rff2 {
             localTask.reset();
             queuedTask.reset();
             localPhase = LocalRenderPhase::IDLE;
+            localReferenceGeneration.reset();
         }
 
         void leave(RFF2 &app) {
@@ -559,6 +566,8 @@ namespace merutilm::rff2 {
                 return false;
             }
             hostJob = std::move(job);
+            referenceGeneration = 0;
+            localReferenceGeneration.reset();
             network.broadcast(RenderPoolMessageType::JOB, hostJob->manifest.encode());
             network.broadcast(RenderPoolMessageType::JOB_STATE, encodeJobState(*hostJob));
             network.broadcast(RenderPoolMessageType::FRAME_STATES,
@@ -580,6 +589,8 @@ namespace merutilm::rff2 {
             job.frames = createFrames(job.manifest, directory);
             job.running = job.completedCount() < job.manifest.frameCount;
             hostJob = std::move(job);
+            referenceGeneration = 0;
+            localReferenceGeneration.reset();
             network.broadcast(RenderPoolMessageType::JOB, hostJob->manifest.encode());
             network.broadcast(RenderPoolMessageType::JOB_STATE, encodeJobState(*hostJob));
             network.broadcast(RenderPoolMessageType::FRAME_STATES,
@@ -607,6 +618,7 @@ namespace merutilm::rff2 {
                     return PoolTask{.jobId = hostJob->manifest.id,
                                     .frameId = frame.id,
                                     .logZoom = frame.logZoom,
+                                    .referenceGeneration = referenceGeneration,
                                     .workerId = workerId,
                                     .workerName = workerName};
                 }
@@ -622,6 +634,7 @@ namespace merutilm::rff2 {
                 return PoolTask{.jobId = hostJob->manifest.id,
                                 .frameId = frame.id,
                                 .logZoom = frame.logZoom,
+                                .referenceGeneration = referenceGeneration,
                                 .workerId = workerId,
                                 .workerName = workerName};
             }
@@ -768,6 +781,7 @@ namespace merutilm::rff2 {
                 workerCompletedFrames = 0;
                 workerJobRunning = true;
                 workerJobPaused = false;
+                localReferenceGeneration.reset();
                 status = "Received render-pool keyframe job";
                 return;
             }
@@ -878,6 +892,8 @@ namespace merutilm::rff2 {
             app.getState().cancel();
             app.beginRenderPoolNavigationLock();
             manifest.apply(app.getSettings(), task.logZoom, localThreads);
+            app.getSettings().fractal.reference.reuse =
+                    localReferenceGeneration && *localReferenceGeneration == task.referenceGeneration;
             app.getWindowContext().getWindow()->setResolution(static_cast<int>(manifest.windowWidth),
                                                               static_cast<int>(manifest.windowHeight));
             expectedRenderCount = app.getCompletedRenderCount() + 1;
@@ -900,6 +916,7 @@ namespace merutilm::rff2 {
                 return;
             const PoolTask task = *localTask;
             if (!app.getLastRenderSucceeded()) {
+                localReferenceGeneration.reset();
                 if (role == PoolRole::HOST && hostJob && task.frameId > 0 &&
                     task.frameId <= hostJob->frames.size()) {
                     auto &frame = hostJob->frames[task.frameId - 1];
@@ -912,10 +929,12 @@ namespace merutilm::rff2 {
                 }
                 status = "Keyframe rendering was interrupted";
             } else if (role == PoolRole::WORKER && !authenticated) {
+                localReferenceGeneration = task.referenceGeneration;
                 ImGui::TextUnformatted(network.isRunning() ? "Connecting..." : "Not connected");
                 if (ImGui::Button("Leave Pool", ImVec2(-FLT_MIN, 0)))
                     leave(app);
             } else {
+                localReferenceGeneration = task.referenceGeneration;
                 const auto map = app.generateMap();
                 const auto bytes = map.encode();
                 if (role == PoolRole::HOST) {
@@ -1091,6 +1110,11 @@ namespace merutilm::rff2 {
                     ImGui::Checkbox("Pause New Assignments", &hostJob->paused);
                     if (ImGui::IsItemDeactivatedAfterEdit())
                         network.broadcast(RenderPoolMessageType::JOB_STATE, encodeJobState(*hostJob));
+                    if (hostJob->running &&
+                        ImGui::Button("Recalculate Reference Next Keyframe", ImVec2(-FLT_MIN, 0))) {
+                        ++referenceGeneration;
+                        status = "Every pool computer will recalculate its reference on its next keyframe";
+                    }
                     drawFrameGrid(hostJob->frames);
                     const bool hasFailed = std::ranges::any_of(hostJob->frames, [](const RenderPoolFrame &frame) {
                         return frame.state == RenderPoolFrameState::FAILED;
