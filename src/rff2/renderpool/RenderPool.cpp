@@ -48,6 +48,7 @@ namespace merutilm::rff2 {
         struct WorkerInfo {
             uint64_t id = 0;
             std::string name;
+            bool supportsReferenceGeneration = false;
         };
 
         constexpr std::string_view JOB_MANIFEST_FILENAME = ".rff-render-pool-job";
@@ -120,19 +121,25 @@ namespace merutilm::rff2 {
             return now ^ (static_cast<uint64_t>(random()) << 32) ^ random();
         }
 
-        std::vector<std::byte> encodeTask(const PoolTask &task) {
+        std::vector<std::byte> encodeTask(const PoolTask &task, const bool includeReferenceGeneration) {
             RenderPoolBinaryWriter writer;
             writer.integer(task.jobId);
             writer.integer(task.frameId);
             writer.floating(task.logZoom);
-            writer.integer(task.referenceGeneration);
+            if (includeReferenceGeneration)
+                writer.integer(task.referenceGeneration);
             return writer.take();
         }
 
         bool decodeTask(const std::span<const std::byte> bytes, PoolTask &task) {
             RenderPoolBinaryReader reader(bytes);
-            return reader.integer(task.jobId) && reader.integer(task.frameId) && reader.floating(task.logZoom) &&
-                   reader.integer(task.referenceGeneration) && reader.finished();
+            if (!reader.integer(task.jobId) || !reader.integer(task.frameId) || !reader.floating(task.logZoom))
+                return false;
+            if (reader.finished()) {
+                task.referenceGeneration = 0;
+                return true;
+            }
+            return reader.integer(task.referenceGeneration) && reader.finished();
         }
 
         std::vector<std::byte> encodeWorkerState(const PoolTask &task, const RenderPoolFrameState state) {
@@ -726,13 +733,26 @@ namespace merutilm::rff2 {
             const auto worker = workers.find(peerId);
             const std::string workerName = worker == workers.end() ? "Worker" : worker->second.name;
             if (const auto task = claimTask(peerId, workerName)) {
-                network.sendToPeer(peerId, RenderPoolMessageType::TASK, encodeTask(*task));
+                const bool supportsReferenceGeneration =
+                        worker != workers.end() && worker->second.supportsReferenceGeneration;
+                network.sendToPeer(peerId, RenderPoolMessageType::TASK,
+                                   encodeTask(*task, supportsReferenceGeneration));
             } else {
                 network.sendToPeer(peerId, RenderPoolMessageType::NO_TASK);
             }
         }
 
         void handleHostMessage(const RenderPoolNetworkEvent &event) {
+            if (event.messageType == RenderPoolMessageType::CAPABILITIES) {
+                RenderPoolBinaryReader reader(event.payload);
+                uint32_t capabilities = 0;
+                if (reader.integer(capabilities) && reader.finished()) {
+                    if (const auto worker = workers.find(event.peerId); worker != workers.end())
+                        worker->second.supportsReferenceGeneration =
+                                (capabilities & RENDER_POOL_CAPABILITY_REFERENCE_GENERATION) != 0;
+                }
+                return;
+            }
             if (event.messageType == RenderPoolMessageType::REQUEST_TASK) {
                 sendTaskToPeer(event.peerId);
                 return;

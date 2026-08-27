@@ -43,7 +43,7 @@ namespace merutilm::rff2 {
 #endif
         constexpr std::array<std::byte, 4> MESSAGE_MAGIC = {
                 std::byte{'R'}, std::byte{'F'}, std::byte{'P'}, std::byte{'1'}};
-        constexpr uint16_t PROTOCOL_VERSION = 2;
+        constexpr uint16_t PROTOCOL_VERSION = 1;
         constexpr uint64_t MAX_MESSAGE_SIZE = 1ULL << 30;
         constexpr uint64_t MAX_HANDSHAKE_SIZE = 4096;
         constexpr int PASSWORD_DERIVATION_ITERATIONS = 120000;
@@ -564,6 +564,14 @@ namespace merutilm::rff2 {
             if (!result.boolean(accepted) || !result.string(text, 256) || !result.finished() || !accepted) {
                 push({.type = RenderPoolNetworkEventType::FAILURE,
                       .text = text.empty() ? "Render-pool authentication was rejected" : text});
+                running = false;
+                return;
+            }
+            RenderPoolBinaryWriter capabilities;
+            capabilities.integer<uint32_t>(RENDER_POOL_CAPABILITY_REFERENCE_GENERATION);
+            if (!sendMessage(socket, RenderPoolMessageType::CAPABILITIES, capabilities.view())) {
+                push({.type = RenderPoolNetworkEventType::FAILURE,
+                      .text = "Could not advertise render-pool capabilities"});
                 running = false;
                 return;
             }

@@ -21,8 +21,11 @@ namespace merutilm::rff2 {
         WORKER_STATE = 15,
         JOB_STATE = 16,
         LEAVE = 17,
-        FRAME_STATES = 18
+        FRAME_STATES = 18,
+        CAPABILITIES = 19
     };
+
+    inline constexpr uint32_t RENDER_POOL_CAPABILITY_REFERENCE_GENERATION = 1U << 0;
 
     enum class RenderPoolNetworkEventType : uint8_t {
         LISTENING,
