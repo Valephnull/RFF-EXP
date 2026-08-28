@@ -15,6 +15,7 @@
 #include <desc_sampling.glsl>
 
 #include <utils_iteration.glsl>
+#include <utils_iteration_filter.glsl>
 #include <utils_palette.glsl>
 #include <utils_stripe.glsl>
 #include <utils_stochastic.glsl>
@@ -50,11 +51,11 @@ double get_iteration_normal(vec2 coordinate) {
 
     ivec2 base = ivec2(floor(coordinate));
     vec2 fraction = fract(coordinate);
-    double lower = mix(get_iteration_normal(base, ivec2(0, 0)),
-                       get_iteration_normal(base, ivec2(1, 0)), double(fraction.x));
-    double upper = mix(get_iteration_normal(base, ivec2(0, 1)),
-                       get_iteration_normal(base, ivec2(1, 1)), double(fraction.x));
-    return mix(lower, upper, double(fraction.y));
+    return filtered_bilinear_iteration(
+            dvec4(get_iteration_normal(base, ivec2(0, 0)),
+                  get_iteration_normal(base, ivec2(1, 0)),
+                  get_iteration_normal(base, ivec2(0, 1)),
+                  get_iteration_normal(base, ivec2(1, 1))), fraction);
 }
 
 double get_iteration_zoomed(vec2 coordinate) {
@@ -63,11 +64,11 @@ double get_iteration_zoomed(vec2 coordinate) {
 
     ivec2 base = ivec2(floor(coordinate));
     vec2 fraction = fract(coordinate);
-    double lower = mix(get_iteration_zoomed(base, ivec2(0, 0)),
-                       get_iteration_zoomed(base, ivec2(1, 0)), double(fraction.x));
-    double upper = mix(get_iteration_zoomed(base, ivec2(0, 1)),
-                       get_iteration_zoomed(base, ivec2(1, 1)), double(fraction.x));
-    return mix(lower, upper, double(fraction.y));
+    return filtered_bilinear_iteration(
+            dvec4(get_iteration_zoomed(base, ivec2(0, 0)),
+                  get_iteration_zoomed(base, ivec2(1, 0)),
+                  get_iteration_zoomed(base, ivec2(0, 1)),
+                  get_iteration_zoomed(base, ivec2(1, 1))), fraction);
 }
 
 void set_iteration_output(ivec2 iter_coord, double value) {
@@ -94,18 +95,26 @@ void main() {
         vec2 zoomed_coord = relative_coord / zoomed_scale + center - vec2(0.5);
 
         double normal_iteration = get_iteration_normal(normal_coord);
-        double output_iteration = normal_iteration;
-        vec3 sample_color = palette_get_color(normal_iteration).rgb * stripe_get_multiplier(normal_iteration);
+        bool normal_valid = valid_iteration_sample(normal_iteration);
+        double output_iteration = normal_valid ? normal_iteration : 0.0;
+        vec3 sample_color = normal_valid
+                ? palette_get_color(normal_iteration).rgb * stripe_get_multiplier(normal_iteration)
+                : vec3(0.0);
         bool zoomed_valid = zoomed_coord.x >= 0.0 && zoomed_coord.y >= 0.0 &&
                             zoomed_coord.x < float(iteration_info_settings.extent.x - 1) &&
                             zoomed_coord.y < float(iteration_info_settings.extent.y - 1);
         if (zoomed_valid) {
             double zoomed_iteration = get_iteration_zoomed(zoomed_coord);
-            if (zoomed_iteration != 0.0) {
-                output_iteration = zoomed_iteration;
+            if (valid_iteration_sample(zoomed_iteration)) {
                 vec3 zoomed_color = palette_get_color(zoomed_iteration).rgb *
                                     stripe_get_multiplier(zoomed_iteration);
-                sample_color = mix(sample_color, zoomed_color, r + 1.0);
+                if (normal_valid) {
+                    output_iteration = mix(normal_iteration, zoomed_iteration, double(r + 1.0));
+                    sample_color = mix(sample_color, zoomed_color, r + 1.0);
+                } else {
+                    output_iteration = zoomed_iteration;
+                    sample_color = zoomed_color;
+                }
             }
         }
 

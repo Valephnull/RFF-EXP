@@ -26,7 +26,7 @@ LAN discovery uses UDP port `48192`; rendering uses TCP port `48191`. Allow RFF-
 
 Leave **Host Also Renders** enabled if the host should render alongside its workers. Workers can use **Render Assigned Keyframes** to pause or resume their own contribution.
 
-The progress dots show every keyframe. Hover a dot to see its frame number, zoom, state, assigned worker, attempt count, and latest error. New assignments can be paused without interrupting frames already being rendered. The dots use the Rendering Process window's scrollbar instead of a nested scrollbar.
+The progress dots show every keyframe. Hover a dot to see its frame number, zoom, state, assigned worker, attempt count, and latest error. **Pause Everything** pauses active host and worker calculations as well as new assignments; **Resume Everything** continues the same assigned frames without consuming another attempt. The dots use the Rendering Process window's scrollbar instead of a nested scrollbar.
 
 Workers see the same overall keyframe count, progress bar, and colored progress dots as the host. RFF-EXP temporarily locks navigation while it renders an assigned frame. When contribution stops or the job finishes, the worker's previous settings, resolution, and location are restored.
 
@@ -35,8 +35,11 @@ The host's output width, output height, and Clarity multiplier are part of the j
 ## Recovery and validation
 
 - Jobs use explicit frame IDs instead of choosing the next unused filename.
-- The host saves `.rff-render-pool-job` in the keyframe folder. **Resume Keyframe Job** rebuilds progress from that manifest and the verified `.rfm`/`.rfl` files already present.
-- Workers render to memory and the host writes a `.partial` file first. A result becomes a numbered `.rfm` only after its job ID, frame ID, zoom, dimensions, and binary structure pass validation.
+- The host saves `.rff-render-pool-job` in the keyframe folder and remembers the active folder outside the job. After a restart, **Resume Interrupted Keyframe Job** returns directly to it; **Resume Keyframe Job** can still select another folder manually.
+- Resume rebuilds progress from the files on disk. Existing keyframes are kept only when the `.rfm` and `.rfl` agree on zoom, center, iteration limit, calculation dimensions, and every iteration sample is finite and complete. Missing or damaged frames alone return to the queue; valid overnight work is never rendered again.
+- Workers render to memory and the host writes a `.partial` file first. A result becomes a numbered `.rfm` only after its job ID, frame ID, zoom, dimensions, binary structure, and iteration data pass validation.
+- Reference reuse is limited to immediately adjacent keyframes rendered by the same computer. Interleaved pool assignments recalculate instead of translating a reference across a skipped range.
+- Video export preflights every numbered dynamic keyframe and reports the exact missing or damaged frame IDs instead of silently truncating the sequence or producing a damaged video.
 - A disconnected worker's assignment returns to the queue. Repeated failures remain visible and can be retried from the server window.
 - Large worker uploads are queued off the GUI thread.
 

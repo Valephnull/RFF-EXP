@@ -225,6 +225,19 @@ if (RFF_BUILD_TESTS)
             ${CMAKE_SOURCE_DIR}/src
             ${CMAKE_SOURCE_DIR}/include)
     add_test(NAME parallel_render_pause COMMAND RFFParallelRenderStatePauseTest)
+
+    add_executable(RFFDynamicMapValidationTest
+            tests/RFFDynamicMapValidationTest.cpp
+            src/rff2/io/RFFBinary.cpp
+            src/rff2/io/RFFDynamicMapBinary.cpp)
+    target_include_directories(RFFDynamicMapValidationTest PRIVATE
+            ${CMAKE_SOURCE_DIR}/src
+            ${CMAKE_SOURCE_DIR}/include
+            ${CMAKE_SOURCE_DIR}/extern
+            ${CMAKE_SOURCE_DIR}/extern/imgui)
+    target_compile_options(RFFDynamicMapValidationTest PRIVATE
+            $<$<CONFIG:Release>:-O3 -ffast-math -fno-associative-math>)
+    add_test(NAME dynamic_map_validation COMMAND RFFDynamicMapValidationTest)
     if (WIN32)
         set_tests_properties(render_pool_network PROPERTIES
                 ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${CLANG64_DIRS}/bin")

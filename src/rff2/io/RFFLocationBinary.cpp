@@ -4,6 +4,7 @@
 
 #include "RFFLocationBinary.h"
 
+#include <bit>
 #include <cmath>
 #include <utility>
 
@@ -29,6 +30,11 @@ namespace merutilm::rff2 {
             input.read(value.data(), static_cast<std::streamsize>(length));
             return static_cast<bool>(input);
         }
+
+        [[nodiscard]] bool isFiniteFloat(const float value) {
+            constexpr uint32_t EXPONENT = uint32_t{0xff} << 23;
+            return (std::bit_cast<uint32_t>(value) & EXPONENT) != EXPONENT;
+        }
     } // namespace
 
     inline const RFFLocationBinary RFFLocationBinary::DEFAULT = RFFLocationBinary(0, "", "", 0);
@@ -51,7 +57,7 @@ namespace merutilm::rff2 {
         uint64_t maxIteration = 0;
         std::string real;
         std::string imag;
-        if (!readExact(in, logZoom) || !readExact(in, maxIteration) || !std::isfinite(logZoom) ||
+        if (!readExact(in, logZoom) || !readExact(in, maxIteration) || !isFiniteFloat(logZoom) ||
             maxIteration == 0 || !readText(in, real) || !readText(in, imag)) {
             return DEFAULT;
         }

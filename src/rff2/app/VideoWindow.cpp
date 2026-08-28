@@ -3,6 +3,11 @@
 //
 #include "VideoWindow.hpp"
 
+#include <charconv>
+#include <format>
+#include <string>
+#include <vector>
+
 #include "../io/RFFDynamicMapBinary.h"
 #include "../io/RFFStaticMapBinary.h"
 #include "IOUtilities.h"
@@ -10,6 +15,64 @@
 #include "opencv2/opencv.hpp"
 
 namespace merutilm::rff2 {
+    namespace {
+        void reportVideoError(RFF2 &app, const std::string &message) {
+            vkh::logger::log_err("{}", message);
+            auto &[mutex, ratio, progressText] = app.getVideoProgressInfo();
+            std::scoped_lock lock(mutex);
+            ratio = 0;
+            progressText = message;
+        }
+
+        bool validateDynamicSequence(const std::filesystem::path &directory, const uint16_t expectedWidth,
+                                     const uint16_t expectedHeight, uint32_t &frameCount, std::string &error) {
+            frameCount = 0;
+            std::error_code filesystemError;
+            for (std::filesystem::directory_iterator iterator(directory, filesystemError), end;
+                 !filesystemError && iterator != end; iterator.increment(filesystemError)) {
+                if (!iterator->is_regular_file(filesystemError) || filesystemError ||
+                    iterator->path().extension() != ".rfm")
+                    continue;
+                const std::string stem = iterator->path().stem().string();
+                uint32_t id = 0;
+                const auto conversion = std::from_chars(stem.data(), stem.data() + stem.size(), id);
+                if (conversion.ec == std::errc{} && conversion.ptr == stem.data() + stem.size() && id > 0)
+                    frameCount = std::max(frameCount, id);
+            }
+            if (filesystemError) {
+                error = "Could not inspect the keyframe folder: " + filesystemError.message();
+                return false;
+            }
+            if (frameCount == 0) {
+                error = "The keyframe folder does not contain a numbered .rfm sequence";
+                return false;
+            }
+
+            std::vector<uint32_t> invalidFrames;
+            for (uint32_t id = 1; id <= frameCount; ++id) {
+                const auto map = RFFDynamicMapBinary::readByID(directory, id);
+                if (!map.hasValidIterations() || map.width != expectedWidth || map.height != expectedHeight)
+                    invalidFrames.push_back(id);
+            }
+            if (invalidFrames.empty())
+                return true;
+
+            std::string ids;
+            constexpr size_t MAX_REPORTED_IDS = 12;
+            for (size_t index = 0; index < std::min(invalidFrames.size(), MAX_REPORTED_IDS); ++index) {
+                if (!ids.empty())
+                    ids += ", ";
+                ids += std::to_string(invalidFrames[index]);
+            }
+            if (invalidFrames.size() > MAX_REPORTED_IDS)
+                ids += ", ...";
+            error = std::format(
+                    "Video export stopped before overwriting time with damaged output. Missing or damaged keyframes: {}. "
+                    "Resume the render-pool job; it will keep the good keyframes and render only these frames.", ids);
+            return false;
+        }
+    } // namespace
+
     VideoWindow::VideoWindow(RFF2 &app, const int width, const int height) :
         app(app), width(width), height(height) {
         VideoWindow::init();
@@ -21,6 +84,7 @@ namespace merutilm::rff2 {
                                   const std::filesystem::path &save, const Settings &settingsClone) {
         int imgWidth = 0;
         int imgHeight = 0;
+        uint32_t dynamicFrameCount = 0;
 
         const bool isWindow = app.rootWindowContext->getWindow()->getWindow();
 
@@ -54,6 +118,12 @@ namespace merutilm::rff2 {
 
             imgWidth = targetMap.width;
             imgHeight = targetMap.height;
+            std::string validationError;
+            if (!validateDynamicSequence(open, targetMap.width, targetMap.height, dynamicFrameCount,
+                                         validationError)) {
+                reportVideoError(app, validationError);
+                return;
+            }
         }
 
 
@@ -83,10 +153,10 @@ namespace merutilm::rff2 {
         uint32_t maxNumber;
         if (isStatic) {
             IOUtilities::generateFilename(open, Constants::File::EXT_STATIC_MAP, &maxNumber);
+            --maxNumber;
         } else {
-            IOUtilities::generateFilename(open, Constants::File::EXT_DYNAMIC_MAP, &maxNumber);
+            maxNumber = dynamicFrameCount;
         }
-        --maxNumber;
 
         const float minNumber = -overZoom;
         auto currentFrame = static_cast<float>(maxNumber);

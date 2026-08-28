@@ -4,6 +4,7 @@
 
 #include "RFFDynamicMapBinary.h"
 
+#include <bit>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -33,6 +34,11 @@ namespace merutilm::rff2 {
             offset += sizeof(T);
             return true;
         }
+
+        bool isFiniteFloat(const float value) {
+            constexpr uint32_t EXPONENT = uint32_t{0xff} << 23;
+            return (std::bit_cast<uint32_t>(value) & EXPONENT) != EXPONENT;
+        }
     }
 
     inline const RFFDynamicMapBinary RFFDynamicMapBinary::DEFAULT = RFFDynamicMapBinary(0, 0, 0, std::vector<double>(), 0, 0);
@@ -44,8 +50,25 @@ namespace merutilm::rff2 {
 
 
     bool RFFDynamicMapBinary::hasData() const {
-        return width > 0 && height > 0 &&
+        return width > 0 && height > 0 && maxIteration > 0 &&
                iterations.size() == static_cast<size_t>(width) * height;
+    }
+
+    bool RFFDynamicMapBinary::hasValidIterations() const {
+        if (!hasData())
+            return false;
+        for (const double iteration: iterations) {
+            // Check the IEEE-754 representation directly. Release builds use
+            // fast-math, under which std::isfinite() is allowed to assume its
+            // argument is finite and cannot reliably validate file input.
+            const uint64_t bits = std::bit_cast<uint64_t>(iteration);
+            constexpr uint64_t SIGN = uint64_t{1} << 63;
+            constexpr uint64_t EXPONENT = uint64_t{0x7ff} << 52;
+            if ((bits & SIGN) != 0 || (bits & EXPONENT) == EXPONENT || (bits & ~SIGN) == 0 ||
+                iteration > static_cast<double>(maxIteration))
+                return false;
+        }
+        return true;
     }
 
 
@@ -78,8 +101,8 @@ namespace merutilm::rff2 {
         uint64_t maxIteration = 0;
         if (!readValue(bytes, offset, width) || !readValue(bytes, offset, height) ||
             !readValue(bytes, offset, logZoom) || !readValue(bytes, offset, period) ||
-            !readValue(bytes, offset, maxIteration) || width == 0 || height == 0 ||
-            !std::isfinite(logZoom)) {
+            !readValue(bytes, offset, maxIteration) || width == 0 || height == 0 || maxIteration == 0 ||
+            !isFiniteFloat(logZoom)) {
             return DEFAULT;
         }
 

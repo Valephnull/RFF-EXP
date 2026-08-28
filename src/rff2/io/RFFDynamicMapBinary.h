@@ -23,6 +23,12 @@ namespace merutilm::rff2 {
                             uint16_t width, uint16_t height);
         [[nodiscard]] bool hasData() const override;
 
+        // A structurally complete map can still contain interrupted-compute
+        // sentinels or non-finite values. Keep this separate from hasData() so
+        // old maps remain readable, while render-pool recovery can reject only
+        // the damaged keyframes.
+        [[nodiscard]] bool hasValidIterations() const;
+
         [[nodiscard]] static RFFDynamicMapBinary read(const std::filesystem::path &path);
 
         [[nodiscard]] static RFFDynamicMapBinary decode(std::span<const std::byte> bytes);

@@ -1,6 +1,7 @@
 #ifndef UTILS_ITERATION_SAMPLING_INCLUDE
 #define UTILS_ITERATION_SAMPLING_INCLUDE
 
+#include <utils_iteration_filter.glsl>
 #include <utils_stochastic.glsl>
 
 double bilinear_iteration(vec2 coordinate) {
@@ -12,15 +13,14 @@ double bilinear_iteration(vec2 coordinate) {
     double i10 = get_iteration(base, ivec2(1, 0));
     double i01 = get_iteration(base, ivec2(0, 1));
     double i11 = get_iteration(base, ivec2(1, 1));
-    double lower = mix(i00, i10, double(fraction.x));
-    double upper = mix(i01, i11, double(fraction.x));
-    return mix(lower, upper, double(fraction.y));
+    return filtered_bilinear_iteration(dvec4(i00, i10, i01, i11), fraction);
 }
 
 double sample_iteration(vec2 coordinate) {
     if (sampling_settings.bilinear)
         return bilinear_iteration(coordinate);
-    return get_iteration(ivec2(coordinate));
+    double iteration = get_iteration(ivec2(coordinate));
+    return valid_iteration_sample(iteration) ? iteration : 0.0;
 }
 
 double sample_pixel_iteration(ivec2 pixel) {

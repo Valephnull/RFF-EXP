@@ -29,6 +29,7 @@
 #include "RenderPoolUpnp.hpp"
 #include "imgui.h"
 #include "vulkan_helper/base/logger.hpp"
+#include "vulkan_helper/util/ExecutableUtils.hpp"
 
 namespace merutilm::rff2 {
     namespace {
@@ -52,7 +53,58 @@ namespace merutilm::rff2 {
         };
 
         constexpr std::string_view JOB_MANIFEST_FILENAME = ".rff-render-pool-job";
+        constexpr std::string_view JOB_RECOVERY_FILENAME = ".rff-render-pool-last-job";
         constexpr double TASK_REQUEST_INTERVAL_SECONDS = 1.0;
+
+        std::filesystem::path recoveryPointerPath() {
+            return vkh::ExecutableUtils::getExecutableDirectory() / JOB_RECOVERY_FILENAME;
+        }
+
+        bool writeRecoveryPointer(const std::filesystem::path &directory) {
+            const auto path = recoveryPointerPath();
+            const auto temporary = path.string() + ".partial";
+            const auto utf8Path = directory.lexically_normal().generic_u8string();
+            {
+                std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+                if (!output)
+                    return false;
+                output.write(reinterpret_cast<const char *>(utf8Path.data()),
+                             static_cast<std::streamsize>(utf8Path.size()));
+                if (!output)
+                    return false;
+            }
+            std::error_code error;
+            std::filesystem::remove(path, error);
+            error.clear();
+            std::filesystem::rename(temporary, path, error);
+            return !error;
+        }
+
+        std::optional<std::filesystem::path> readRecoveryPointer() {
+            const auto path = recoveryPointerPath();
+            std::ifstream input(path, std::ios::binary | std::ios::ate);
+            if (!input)
+                return std::nullopt;
+            const auto length = input.tellg();
+            if (length <= 0 || length > static_cast<std::streamoff>(1U << 20))
+                return std::nullopt;
+            input.seekg(0, std::ios::beg);
+            std::string text(static_cast<size_t>(length), '\0');
+            input.read(text.data(), length);
+            if (!input)
+                return std::nullopt;
+            const std::u8string utf8(reinterpret_cast<const char8_t *>(text.data()), text.size());
+            const std::filesystem::path directory = std::filesystem::path(utf8);
+            std::error_code filesystemError;
+            if (!std::filesystem::exists(directory / JOB_MANIFEST_FILENAME, filesystemError) || filesystemError)
+                return std::nullopt;
+            return directory;
+        }
+
+        void clearRecoveryPointer() {
+            std::error_code ignored;
+            std::filesystem::remove(recoveryPointerPath(), ignored);
+        }
 
         uint8_t poolIdChecksum(const uint32_t address) {
             uint32_t value = address;
@@ -260,18 +312,31 @@ namespace merutilm::rff2 {
         }
 
         std::vector<RenderPoolFrame> createFrames(const RenderPoolJobManifest &manifest,
-                                                  const std::filesystem::path &directory) {
+                                                   const std::filesystem::path &directory) {
             std::vector<RenderPoolFrame> frames;
             frames.reserve(manifest.frameCount);
+            const auto internalExtent = RendererUtils::getInternalImageExtent(
+                    {manifest.windowWidth, manifest.windowHeight}, manifest.clarityMultiplier);
             float logZoom = manifest.startLogZoom;
             for (uint32_t id = 1; id <= manifest.frameCount; ++id, logZoom -= manifest.zoomIncrement) {
                 RenderPoolFrame frame{.id = id, .logZoom = logZoom};
                 const auto map = RFFDynamicMapBinary::readByID(directory, id);
                 const auto location = RFFLocationBinary::read(
                         directory / IOUtilities::fileNameFormat(id, Constants::File::EXT_LOCATION));
-                if (map.hasData() && location.hasData() && std::abs(map.getLogZoom() - logZoom) < 0.0005f &&
-                    std::abs(location.getLogZoom() - logZoom) < 0.0005f) {
+                if (map.hasValidIterations() && map.width == internalExtent.width &&
+                    map.height == internalExtent.height && location.hasData() &&
+                    std::abs(map.getLogZoom() - logZoom) < 0.0005f &&
+                    std::abs(location.getLogZoom() - logZoom) < 0.0005f &&
+                    location.getReal() == manifest.centerReal && location.getImag() == manifest.centerImag &&
+                    location.getMaxIteration() == map.maxIteration) {
                     frame.state = RenderPoolFrameState::COMPLETE;
+                } else {
+                    const auto mapPath =
+                            directory / IOUtilities::fileNameFormat(id, Constants::File::EXT_DYNAMIC_MAP);
+                    const auto locationPath =
+                            directory / IOUtilities::fileNameFormat(id, Constants::File::EXT_LOCATION);
+                    if (std::filesystem::exists(mapPath) || std::filesystem::exists(locationPath))
+                        frame.error = "Saved keyframe is incomplete, damaged, or from different job settings";
                 }
                 frames.push_back(std::move(frame));
             }
@@ -348,11 +413,15 @@ namespace merutilm::rff2 {
         double lastTaskRequest = -10;
         uint64_t referenceGeneration = 0;
         std::optional<uint64_t> localReferenceGeneration;
+        std::optional<uint32_t> localReferenceFrameId;
+        std::optional<float> localReferenceLogZoom;
+        std::optional<std::filesystem::path> recoverableJobDirectory;
 
         Impl() {
             const std::string workerName = defaultWorkerName();
             std::copy_n(workerName.c_str(), std::min(workerName.size(), workerNameInput.size() - 1),
                         workerNameInput.begin());
+            recoverableJobDirectory = readRecoveryPointer();
         }
 
         void clearConnectionState() {
@@ -369,6 +438,8 @@ namespace merutilm::rff2 {
             poolId.clear();
             referenceGeneration = 0;
             localReferenceGeneration.reset();
+            localReferenceFrameId.reset();
+            localReferenceLogZoom.reset();
         }
 
         void pollUpnp() {
@@ -493,6 +564,8 @@ namespace merutilm::rff2 {
             queuedTask.reset();
             localPhase = LocalRenderPhase::IDLE;
             localReferenceGeneration.reset();
+            localReferenceFrameId.reset();
+            localReferenceLogZoom.reset();
         }
 
         void leave(RFF2 &app) {
@@ -568,7 +641,7 @@ namespace merutilm::rff2 {
             }
             job.outputDirectory = directory;
             job.frames = createFrames(manifest, directory);
-            job.running = true;
+            job.running = job.completedCount() < manifest.frameCount;
             if (!writeManifest(job, error)) {
                 status = error;
                 return false;
@@ -576,11 +649,22 @@ namespace merutilm::rff2 {
             hostJob = std::move(job);
             referenceGeneration = 0;
             localReferenceGeneration.reset();
+            localReferenceFrameId.reset();
+            localReferenceLogZoom.reset();
+            if (hostJob->running) {
+                recoverableJobDirectory = directory;
+                if (!writeRecoveryPointer(directory))
+                    vkh::logger::log_err("Could not save render-pool recovery pointer");
+            } else {
+                recoverableJobDirectory.reset();
+                clearRecoveryPointer();
+            }
             network.broadcast(RenderPoolMessageType::JOB, hostJob->manifest.encode());
             network.broadcast(RenderPoolMessageType::JOB_STATE, encodeJobState(*hostJob));
             network.broadcast(RenderPoolMessageType::FRAME_STATES,
                               encodeFrameStates(hostJob->manifest.id, hostJob->frames));
-            status = "Render-pool keyframe job started";
+            status = hostJob->running ? "Render-pool keyframe job started"
+                                      : "All matching keyframes were already complete";
             return true;
         }
 
@@ -599,11 +683,24 @@ namespace merutilm::rff2 {
             hostJob = std::move(job);
             referenceGeneration = 0;
             localReferenceGeneration.reset();
+            localReferenceFrameId.reset();
+            localReferenceLogZoom.reset();
             network.broadcast(RenderPoolMessageType::JOB, hostJob->manifest.encode());
             network.broadcast(RenderPoolMessageType::JOB_STATE, encodeJobState(*hostJob));
             network.broadcast(RenderPoolMessageType::FRAME_STATES,
                               encodeFrameStates(hostJob->manifest.id, hostJob->frames));
-            status = hostJob->running ? "Render-pool job resumed" : "Render-pool job is already complete";
+            const uint32_t complete = hostJob->completedCount();
+            if (hostJob->running) {
+                recoverableJobDirectory = directory;
+                if (!writeRecoveryPointer(directory))
+                    vkh::logger::log_err("Could not save render-pool recovery pointer");
+                status = std::format("Render-pool job resumed: {} saved keyframes kept, {} queued",
+                                     complete, hostJob->manifest.frameCount - complete);
+            } else {
+                recoverableJobDirectory.reset();
+                clearRecoveryPointer();
+                status = "Render-pool job is already complete";
+            }
             return true;
         }
 
@@ -682,7 +779,7 @@ namespace merutilm::rff2 {
             const auto internalExtent = RendererUtils::getInternalImageExtent(
                     {hostJob->manifest.windowWidth, hostJob->manifest.windowHeight},
                     hostJob->manifest.clarityMultiplier);
-            if (!map.hasData() || map.width != internalExtent.width ||
+            if (!map.hasValidIterations() || map.width != internalExtent.width ||
                 map.height != internalExtent.height ||
                 std::abs(map.getLogZoom() - frame.logZoom) >= 0.0005f) {
                 frame.error = "Worker returned a mismatched or damaged keyframe";
@@ -697,7 +794,9 @@ namespace merutilm::rff2 {
             const auto temporaryPath = finalPath.string() + ".partial";
             map.exportFile(temporaryPath);
             const auto check = RFFDynamicMapBinary::read(temporaryPath);
-            if (!check.hasData()) {
+            if (!check.hasValidIterations() || check.width != internalExtent.width ||
+                check.height != internalExtent.height || check.maxIteration != map.maxIteration ||
+                std::abs(check.getLogZoom() - frame.logZoom) >= 0.0005f) {
                 std::error_code ignored;
                 std::filesystem::remove(temporaryPath, ignored);
                 frame.error = "Could not verify the received keyframe on disk";
@@ -716,14 +815,41 @@ namespace merutilm::rff2 {
                 broadcastFrameState(frame);
                 return false;
             }
+            const auto finalLocationPath = hostJob->outputDirectory /
+                    IOUtilities::fileNameFormat(frameId, Constants::File::EXT_LOCATION);
+            const auto temporaryLocationPath = finalLocationPath.string() + ".partial";
             RFFLocationBinary(frame.logZoom, hostJob->manifest.centerReal, hostJob->manifest.centerImag,
-                              map.maxIteration)
-                    .exportAsKeyframe(hostJob->outputDirectory, frameId);
+                              map.maxIteration).exportFile(temporaryLocationPath);
+            const auto locationCheck = RFFLocationBinary::read(temporaryLocationPath);
+            if (!locationCheck.hasData() || std::abs(locationCheck.getLogZoom() - frame.logZoom) >= 0.0005f ||
+                locationCheck.getReal() != hostJob->manifest.centerReal ||
+                locationCheck.getImag() != hostJob->manifest.centerImag ||
+                locationCheck.getMaxIteration() != map.maxIteration) {
+                std::error_code ignored;
+                std::filesystem::remove(temporaryLocationPath, ignored);
+                frame.error = "Could not verify the received keyframe location on disk";
+                frame.state = frame.attempts >= 3 ? RenderPoolFrameState::FAILED : RenderPoolFrameState::WAITING;
+                frame.workerId = 0;
+                broadcastFrameState(frame);
+                return false;
+            }
+            ec.clear();
+            std::filesystem::remove(finalLocationPath, ec);
+            ec.clear();
+            std::filesystem::rename(temporaryLocationPath, finalLocationPath, ec);
+            if (ec) {
+                frame.error = "Could not install the received keyframe location: " + ec.message();
+                frame.state = RenderPoolFrameState::FAILED;
+                broadcastFrameState(frame);
+                return false;
+            }
             frame.state = RenderPoolFrameState::COMPLETE;
             frame.error.clear();
             broadcastFrameState(frame);
             if (hostJob->completedCount() == hostJob->manifest.frameCount) {
                 hostJob->running = false;
+                recoverableJobDirectory.reset();
+                clearRecoveryPointer();
                 status = "All render-pool keyframes are complete";
             }
             network.broadcast(RenderPoolMessageType::JOB_STATE, encodeJobState(*hostJob));
@@ -803,6 +929,8 @@ namespace merutilm::rff2 {
                 workerJobRunning = true;
                 workerJobPaused = false;
                 localReferenceGeneration.reset();
+                localReferenceFrameId.reset();
+                localReferenceLogZoom.reset();
                 status = "Received render-pool keyframe job";
                 return;
             }
@@ -913,7 +1041,10 @@ namespace merutilm::rff2 {
             app.getState().cancel();
             app.beginRenderPoolNavigationLock();
             manifest.apply(app.getSettings(), task.logZoom, localThreads);
-            app.getSettings().fractal.reference.reuse =
+            const bool adjacentFrame = localReferenceFrameId && *localReferenceFrameId + 1 == task.frameId;
+            const bool adjacentZoom = localReferenceLogZoom &&
+                    std::abs((*localReferenceLogZoom - task.logZoom) - manifest.zoomIncrement) < 0.0005f;
+            app.getSettings().fractal.reference.reuse = adjacentFrame && adjacentZoom &&
                     localReferenceGeneration && *localReferenceGeneration == task.referenceGeneration;
             app.getWindowContext().getWindow()->setResolution(static_cast<int>(manifest.windowWidth),
                                                               static_cast<int>(manifest.windowHeight));
@@ -938,6 +1069,8 @@ namespace merutilm::rff2 {
             const PoolTask task = *localTask;
             if (!app.getLastRenderSucceeded()) {
                 localReferenceGeneration.reset();
+                localReferenceFrameId.reset();
+                localReferenceLogZoom.reset();
                 if (role == PoolRole::HOST && hostJob && task.frameId > 0 &&
                     task.frameId <= hostJob->frames.size()) {
                     auto &frame = hostJob->frames[task.frameId - 1];
@@ -951,11 +1084,15 @@ namespace merutilm::rff2 {
                 status = "Keyframe rendering was interrupted";
             } else if (role == PoolRole::WORKER && !authenticated) {
                 localReferenceGeneration = task.referenceGeneration;
+                localReferenceFrameId = task.frameId;
+                localReferenceLogZoom = task.logZoom;
                 ImGui::TextUnformatted(network.isRunning() ? "Connecting..." : "Not connected");
                 if (ImGui::Button("Leave Pool", ImVec2(-FLT_MIN, 0)))
                     leave(app);
             } else {
                 localReferenceGeneration = task.referenceGeneration;
+                localReferenceFrameId = task.frameId;
+                localReferenceLogZoom = task.logZoom;
                 const auto map = app.generateMap();
                 const auto bytes = map.encode();
                 if (role == PoolRole::HOST) {
@@ -1123,6 +1260,14 @@ namespace merutilm::rff2 {
                 ImGui::Checkbox("Host Also Renders", &hostRenders);
 
                 if (!hostJob) {
+                    if (recoverableJobDirectory) {
+                        ImGui::TextWrapped("Interrupted keyframe job found:\n%s",
+                                           recoverableJobDirectory->string().c_str());
+                        if (ImGui::Button("Resume Interrupted Keyframe Job", ImVec2(-FLT_MIN, 0))) {
+                            const std::filesystem::path directory = *recoverableJobDirectory;
+                            resumeJob(directory);
+                        }
+                    }
                     if (ImGui::Button("Start Keyframe Job", ImVec2(-FLT_MIN, 0))) {
                         if (const auto directory = IOUtilities::ioDirectoryDialog())
                             createJobFromCurrent(app, *directory);
