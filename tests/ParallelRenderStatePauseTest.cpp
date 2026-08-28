@@ -54,5 +54,14 @@ int main() {
         return EXIT_FAILURE;
     cancel.get();
     state.resume();
+
+    auto destroyPaused = std::async(std::launch::async, [] {
+        ParallelRenderState pausedState;
+        pausedState.pause();
+        pausedState.createThread([&] { (void) pausedState.interruptRequested(); });
+    });
+    if (destroyPaused.wait_for(1s) != std::future_status::ready)
+        return EXIT_FAILURE;
+    destroyPaused.get();
     return EXIT_SUCCESS;
 }

@@ -9,6 +9,10 @@
 
 
 namespace merutilm::rff2 {
+    ParallelRenderState::~ParallelRenderState() {
+        cancel();
+    }
+
     std::stop_token ParallelRenderState::stopToken() const {
         return thread.get_stop_token();
     }

@@ -6,6 +6,8 @@
 #include <atomic>
 #include <condition_variable>
 #include <functional>
+#include <latch>
+#include <memory>
 #include <mutex>
 #include <thread>
 
@@ -23,19 +25,21 @@ namespace merutilm::rff2 {
     public:
         ParallelRenderState() = default;
 
+        ~ParallelRenderState();
+
         template<typename T> requires std::is_invocable_r_v<void, T>
         void createThread(T &&func) {
             std::scoped_lock lock(mutex);
 
             cancelUnsafe();
-            thread = std::jthread([this, f = std::forward<T>(func)]() mutable {
-                {
-                    //wait until jthread allocation
-                    std::scoped_lock lock2(mutex);
-                }
-
+            auto startGate = std::make_shared<std::latch>(1);
+            thread = std::jthread([f = std::forward<T>(func), startGate]() mutable {
+                // The worker must not call back into ParallelRenderState until
+                // the jthread (and therefore its stop token) is fully assigned.
+                startGate->wait();
                 f();
             });
+            startGate->count_down();
         }
 
         [[nodiscard]] std::stop_token stopToken() const;
