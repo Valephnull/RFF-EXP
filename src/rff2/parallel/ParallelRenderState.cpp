@@ -14,11 +14,25 @@ namespace merutilm::rff2 {
     }
 
     bool ParallelRenderState::interruptRequested() const {
-        return stopToken().stop_requested();
+        std::unique_lock lock(pauseMutex);
+        pauseCondition.wait(lock, [this] {
+            return !paused.load() || thread.get_stop_token().stop_requested();
+        });
+        return thread.get_stop_token().stop_requested();
     }
 
     void ParallelRenderState::interrupt() {
         thread.request_stop();
+        pauseCondition.notify_all();
+    }
+
+    void ParallelRenderState::pause() {
+        paused = true;
+    }
+
+    void ParallelRenderState::resume() {
+        paused = false;
+        pauseCondition.notify_all();
     }
 
     void ParallelRenderState::cancel() {

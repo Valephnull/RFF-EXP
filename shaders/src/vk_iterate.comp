@@ -5,54 +5,17 @@
 // define descriptors
 #define DESC_ITERATION 0
 #define DESC_ITERATION_BUFFER_ACCESS writeonly
+#define DESC_RENDER_META 1
 
 // include descriptors
 #include <desc_iteration.glsl>
+#include <desc_render_meta.glsl>
 
 // include utilities
 
-
-
-
-struct PA {
-    uint64_t skip;
-    vec2 an;
-    vec2 bn;
-    float radius;
-    float _padd; // Explicitly pad the struct to 32 bytes for array stride
-};
-
-struct MPIndexMapper {
-    uint64_t mapped;
-    uint64_t levels;
-};
-
-
 layout (constant_id = 0) const uint mpa_mode = 0;
 
-layout (std430, set = 1, binding = 0) readonly buffer RenderMeta {
-    uint64_t max_iteration;
-    uint64_t max_ref_iteration;
-    float log_zoom;
-    float bailout;
-    float clarity_multiplier;
-    uint decimalize_iteration_method;
-    vec2 offset;
-    vec2 orbit[];
-} render_meta;
-
-
-layout (std430, set = 1, binding = 1) readonly buffer MPTableMeta {
-    uint64_t len;
-    uint selection_method;
-    //padding 4
-    PA[] table; //28 bytes, padding per elem 4
-} mp_table_meta;
-
-layout (std430, set = 1, binding = 2) readonly buffer MPMapperMeta {
-    uint64_t len;
-    MPIndexMapper[] mapper;
-} mp_mapper_meta;
+layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
 
 vec2 mul_comp(vec2 a, vec2 b)
@@ -70,11 +33,10 @@ float norm2(vec2 a)
 }
 
 
-vec2 offset_conversion(vec2 pixel, vec2 extent) {
-    return (pixel - extent / 2) / pow(10, render_meta.log_zoom) / render_meta.clarity_multiplier;
+vec2 offset_conversion(uvec2 pixel, uvec2 extent) {
+    return (vec2(pixel) - vec2(extent) / 2) / pow(10, render_meta.log_zoom) / render_meta.clarity_multiplier;
 }
 
-layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
 uint compress(uint64_t ref_iteration) {
     //TODO compress
@@ -208,23 +170,28 @@ float get_exterior_double_value_iteration_ratio(float prev_distance, float curr_
 }
 
 void main() {
-    uint64_t iteration = uint64_t(0);
-    uint64_t ref_iteration = uint64_t(0);
-    vec2 dz = vec2(0, 0);
 
-    int px = int(gl_GlobalInvocationID.x);
-    int py = int(gl_GlobalInvocationID.y);
-    vec2 pixel = vec2(px, py);
+
+    uint px = gl_GlobalInvocationID.x;
+    uint py = gl_GlobalInvocationID.y;
+    uvec2 pixel = uvec2(px, py);
     uint index = py * iteration_info_settings.extent.x + px;
 
-    vec2 extent = vec2(iteration_info_settings.extent);
+    if (px >= int(iteration_info_settings.extent.x) || py >= int(iteration_info_settings.extent.y)) return;
+    if (batch_result_data.completed[index] != 0) return;
+
+    vec2 dz = batch_data.staging_values[index].dz;
+    uvec2 extent = uvec2(iteration_info_settings.extent);
     float bailout2 = render_meta.bailout * render_meta.bailout;
 
+    uint64_t iteration = batch_data.staging_values[index].iteration;
+    uint64_t ref_iteration = batch_data.staging_values[index].ref_iteration;
     vec2 dc = offset_conversion(pixel, extent) + render_meta.offset;
     float prev_distance2 = 0;
-    float curr_distance2 = 0;
+    float curr_distance2 = batch_data.staging_values[index].distance2;
+    uint batch_iteration = 0;
 
-    while (iteration < render_meta.max_iteration)
+    while (iteration < render_meta.max_iteration && batch_iteration < batch_info.batch_size)
     {
         if (mp_table_meta.len != 0) {
             PA pa = lookup(ref_iteration, dz);
@@ -232,10 +199,11 @@ void main() {
                 dz = apply(pa, dz, dc);
                 iteration += pa.skip;
                 ref_iteration += pa.skip;
+                ++batch_iteration;
 
                 if (iteration >= render_meta.max_iteration) {
-                    iteration_settings.iterations[index] = double(render_meta.max_iteration);
-                    return;
+                    iteration_settings.iterations[index] = render_meta.max_iteration;
+                    break;
                 }
             }
         }
@@ -250,6 +218,7 @@ void main() {
 
             ++ref_iteration;
             ++iteration;
+            ++batch_iteration;
         }
 
         vec2 z = render_meta.orbit[compress(ref_iteration)] + dz;
@@ -261,17 +230,25 @@ void main() {
             dz = z;
         }
 
-        if (curr_distance2 > bailout2) break;
+        if (curr_distance2 > bailout2) {
+            float prev_distance = sqrt(prev_distance2);
+            float curr_distance = sqrt(curr_distance2);
+            iteration_settings.iterations[index] = double(iteration) + get_exterior_double_value_iteration_ratio(prev_distance, curr_distance);
+            batch_result_data.completed[index] = 1;
+            break;
+        }
     }
 
     if (iteration >= render_meta.max_iteration) {
         iteration_settings.iterations[index] = render_meta.max_iteration;
+        batch_result_data.completed[index] = 1;
         return;
     }
 
-    float prev_distance = sqrt(prev_distance2);
-    float curr_distance = sqrt(curr_distance2);
 
-    iteration_settings.iterations[index] = double(iteration) + get_exterior_double_value_iteration_ratio(prev_distance, curr_distance);
+    batch_data.staging_values[index].dz = dz;
+    batch_data.staging_values[index].ref_iteration = ref_iteration;
+    batch_data.staging_values[index].iteration = iteration;
+    batch_data.staging_values[index].distance2 = curr_distance2;
 
 }

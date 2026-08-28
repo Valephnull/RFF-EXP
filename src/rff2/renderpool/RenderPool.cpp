@@ -20,8 +20,8 @@
 #include "../constants/Constants.hpp"
 #include "../io/RFFDynamicMapBinary.h"
 #include "../io/RFFLocationBinary.h"
-#include "../ui/IOUtilities.h"
-#include "../ui/RFF2.hpp"
+#include "../app/IOUtilities.h"
+#include "../app/RFF2.hpp"
 #include "../util/RendererUtils.hpp"
 #include "RenderPoolBinary.hpp"
 #include "RenderPoolJob.hpp"
@@ -481,6 +481,7 @@ namespace merutilm::rff2 {
         void restoreLocalState(RFF2 &app) {
             if (!savedSettings)
                 return;
+            app.getState().resume();
             app.getState().cancel();
             app.getSettings() = *savedSettings;
             app.getWindowContext().getWindow()->setResolution(static_cast<int>(savedWindowExtent.width),
@@ -542,7 +543,7 @@ namespace merutilm::rff2 {
             manifest.minimumSkippedReference = fractal.mpa.minSkipReference;
             manifest.maximumMultiplierBetweenLevel = fractal.mpa.maxMultiplierBetweenLevel;
             manifest.approximationEpsilonPower = fractal.mpa.epsilonPower;
-            manifest.approximationSelectionMethod = static_cast<uint8_t>(fractal.mpa.mpaSelectionMethod);
+            manifest.approximationSelectionMethod = static_cast<uint8_t>(fractal.mpa.selectionMethod);
             manifest.compressApproximation = fractal.mpa.useCompress;
             manifest.parallelizeApproximation = fractal.mpa.useParallelization;
             manifest.maxIteration = fractal.perturb.maxIteration;
@@ -974,9 +975,18 @@ namespace merutilm::rff2 {
         }
 
         void updateLocalRenderer(RFF2 &app) {
+            const bool pauseActiveRender = localTask &&
+                    ((role == PoolRole::HOST && hostJob && hostJob->paused) ||
+                     (role == PoolRole::WORKER && workerJobPaused));
+            if (pauseActiveRender)
+                app.getState().pause();
+            else
+                app.getState().resume();
+
             if (localPhase == LocalRenderPhase::RENDERING && app.isIdleCompute() &&
                 app.getCompletedRenderCount() >= expectedRenderCount) {
                 finishLocalTask(app);
+                app.getState().resume();
             }
 
             if (localPhase != LocalRenderPhase::IDLE)
@@ -1127,9 +1137,13 @@ namespace merutilm::rff2 {
                     ImGui::Text("Keyframes: %u / %u", completed, hostJob->manifest.frameCount);
                     ImGui::ProgressBar(static_cast<float>(completed) /
                                        static_cast<float>(hostJob->manifest.frameCount));
-                    ImGui::Checkbox("Pause New Assignments", &hostJob->paused);
-                    if (ImGui::IsItemDeactivatedAfterEdit())
+                    const char *pauseLabel = hostJob->paused ? "Resume Everything" : "Pause Everything";
+                    if (ImGui::Button(pauseLabel, ImVec2(-FLT_MIN, 0))) {
+                        hostJob->paused = !hostJob->paused;
                         network.broadcast(RenderPoolMessageType::JOB_STATE, encodeJobState(*hostJob));
+                        status = hostJob->paused ? "All render-pool computers are paused"
+                                                 : "Render-pool rendering resumed";
+                    }
                     if (hostJob->running &&
                         ImGui::Button("Recalculate Reference Next Keyframe", ImVec2(-FLT_MIN, 0))) {
                         ++referenceGeneration;
@@ -1165,7 +1179,10 @@ namespace merutilm::rff2 {
                     ImGui::ProgressBar(static_cast<float>(workerCompletedFrames) /
                                        static_cast<float>(workerJob->frameCount));
                     if (localTask)
-                        ImGui::Text("Rendering %u at E%.3f", localTask->frameId, localTask->logZoom);
+                        ImGui::Text(workerJobPaused ? "Paused on %u at E%.3f" : "Rendering %u at E%.3f",
+                                    localTask->frameId, localTask->logZoom);
+                    else if (workerJobPaused)
+                        ImGui::TextUnformatted("Rendering paused by host");
                     drawFrameGrid(workerFrames);
                 }
             }

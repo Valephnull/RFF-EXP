@@ -65,12 +65,12 @@ namespace merutilm::rff2 {
     }
 
     AutoExplorer::Candidate AutoExplorer::findCandidate(const RFF2 &app) {
-        const Matrix<double> *matrix = app.getIterationMatrix();
-        if (!matrix || matrix->getWidth() < 3 || matrix->getHeight() < 3)
+        const RFF2::IterationSnapshot matrix = app.getIterationSnapshot();
+        if (!matrix.valid())
             return {};
 
-        const int width = matrix->getWidth();
-        const int height = matrix->getHeight();
+        const int width = matrix.width;
+        const int height = matrix.height;
         const int marginX = std::clamp(width * config.edgeMarginPercent / 100, 1, (width - 1) / 2);
         const int marginY = std::clamp(height * config.edgeMarginPercent / 100, 1, (height - 1) / 2);
         std::uniform_int_distribution<int> xDistribution(marginX, width - marginX - 1);
@@ -98,11 +98,11 @@ namespace merutilm::rff2 {
                 if (dx * dx + dy * dy < radius * radius)
                     continue;
             }
-            double localMin = (*matrix)(x, y);
+            double localMin = matrix.at(x, y);
             double localMax = localMin;
             for (const auto &offset: NEIGHBORS) {
                 const double value =
-                        (*matrix)(static_cast<uint16_t>(x + offset[0]), static_cast<uint16_t>(y + offset[1]));
+                        matrix.at(static_cast<uint16_t>(x + offset[0]), static_cast<uint16_t>(y + offset[1]));
                 localMin = std::min(localMin, value);
                 localMax = std::max(localMax, value);
             }
@@ -177,10 +177,11 @@ namespace merutilm::rff2 {
             return false;
         }
 
-        if (const Matrix<double> *matrix = app.getIterationMatrix(); matrix && failedCandidate.contrast > 0) {
+        if (const RFF2::IterationSnapshot matrix = app.getIterationSnapshot(); matrix.valid() &&
+            failedCandidate.contrast > 0) {
             avoidCandidate = true;
-            avoidXRatio = static_cast<float>(failedCandidate.x) / static_cast<float>(matrix->getWidth());
-            avoidYRatio = static_cast<float>(failedCandidate.y) / static_cast<float>(matrix->getHeight());
+            avoidXRatio = static_cast<float>(failedCandidate.x) / static_cast<float>(matrix.width);
+            avoidYRatio = static_cast<float>(failedCandidate.y) / static_cast<float>(matrix.height);
         }
 
         settings.fractal.general.logZoom = recoveredZoom;

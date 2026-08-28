@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "RFFBinary.h"
+
 namespace merutilm::rff2 {
     struct RFFDynamicMapBinary final : RFFBinary{
         uint64_t period;

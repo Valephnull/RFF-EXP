@@ -6,8 +6,8 @@
 
 #include <algorithm>
 
+#include "../app/Utilities.h"
 #include "../settings/ShdPaletteSettings.h"
-#include "../ui/Utilities.h"
 #include "SharedDescriptorTemplate.hpp"
 #include "vulkan_helper/util/BufferImageContextUtils.hpp"
 #include "vulkan_helper/util/DescriptorUpdater.hpp"
@@ -48,7 +48,7 @@ namespace merutilm::rff2 {
 
         iterSSBOHost.resizeArray<double>(DescIteration::TARGET_SSBO_ITERATION_BUFFER, width * height);
         iterSSBO.reloadBuffer();
-        iterSSBO.lock(wc.getCommandPool());
+        iterSSBO.localize(wc.getCommandPool());
         writeDescriptorMF([&iterDesc](vkh::DescriptorUpdateQueue &queue, const uint32_t frameIndex) {
             iterDesc.queue(queue, frameIndex, {}, {DescIteration::BINDING_SSBO_ITERATION_MATRIX});
         });
@@ -90,7 +90,7 @@ namespace merutilm::rff2 {
         paletteSSBOHost.set<glm::vec4>(DescPalette::TARGET_PALETTE_COLORS, palette.colors);
         paletteSSBO.reloadBuffer();
         paletteSSBO.update();
-        paletteSSBO.lock(wc.getCommandPool());
+        paletteSSBO.localize(wc.getCommandPool());
 
         writeDescriptorMF([&paletteDesc](vkh::DescriptorUpdateQueue &queue, const uint32_t frameIndex) {
             paletteDesc.queue(queue, frameIndex, {}, {DescPalette::BINDING_SSBO_PALETTE});

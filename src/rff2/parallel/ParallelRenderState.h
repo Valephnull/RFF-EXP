@@ -3,15 +3,18 @@
 //
 
 #pragma once
+#include <atomic>
+#include <condition_variable>
 #include <functional>
 #include <mutex>
 #include <thread>
 
-#include "vulkan_helper/base/logger.hpp"
-
 namespace merutilm::rff2 {
     class ParallelRenderState final {
         std::mutex mutex;
+        mutable std::mutex pauseMutex;
+        mutable std::condition_variable pauseCondition;
+        std::atomic<bool> paused = false;
         std::jthread thread = std::jthread([](const std::stop_token&) {
             //default empty thread
         });
@@ -42,6 +45,12 @@ namespace merutilm::rff2 {
         void cancel();
 
         void interrupt();
+
+        void pause();
+
+        void resume();
+
+        [[nodiscard]] bool isPaused() const { return paused.load(); }
 
     private:
         void cancelUnsafe();

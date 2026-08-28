@@ -12,17 +12,17 @@
 #include <thread>
 
 #include "../io/RFFDynamicMapBinary.h"
-#include "../data/Matrix.h"
 #include "../mb/MB2Perturbator.h"
 #include "../mb/MB2RenderData.hpp"
 #include "../parallel/BackgroundThreads.h"
 #include "../preset/Presets.h"
 #include "../renderpool/RenderPool.hpp"
 #include "../settings/Settings.h"
-#include "AppRenderer.hpp"
 #include "AutoExplorer.hpp"
+#include "ComputeShaderRenderManager.hpp"
 #include "CrashRecovery.hpp"
 #include "CursorManager.hpp"
+#include "RFF2Renderer.hpp"
 #include "UpdateRequests.hpp"
 #include "VideoProgressInfo.hpp"
 #include "ZoomAnimationInfo.hpp"
@@ -30,6 +30,7 @@
 
 namespace merutilm::rff2 {
     class RFF2 final : public vkh::Application {
+
         struct GuidedZoomTarget {
             float x = 0;
             float y = 0;
@@ -60,24 +61,24 @@ namespace merutilm::rff2 {
         };
 
         ParallelRenderState state = {};
-        std::mutex ptbWithComputeShaderMutex;
+
         Settings settings;
         UpdateRequests requests = {};
-        AppRenderer *renderer = nullptr;
+        RFF2Renderer *renderer = nullptr;
 
-        std::atomic<bool> idleCompute = true;
+
+        std::atomic<bool> canShowPreview = false;
         std::atomic<bool> lastRenderSucceeded = false;
         std::atomic<uint64_t> completedRenderCount = 0;
-        std::atomic<bool> canShowPreview = false;
         std::atomic<bool> navigationLocked = false;
         std::atomic<bool> unlockNavigationAfterRender = false;
 
         std::array<std::string, Constants::Status::LENGTH> statusMessages = {};
-        std::unique_ptr<Matrix<double>> actualIterationMatrix = nullptr;
         mutable std::shared_mutex renderDataMutex;
         std::unique_ptr<MB2RenderDataBase> renderData = nullptr;
         std::unique_ptr<ApproxTableCacheBase> approxTableCache = nullptr;
         std::unique_ptr<CursorManager> cursorManager = nullptr;
+        std::unique_ptr<ComputeShaderRenderManager> computeShaderManager = nullptr;
 
         ZoomAnimationInfo zoomAnimationInfo;
         VideoProgressInfo videoProgressInfo = {};
@@ -147,7 +148,7 @@ namespace merutilm::rff2 {
 
         void applyShaderSettings(const Settings &s) const;
 
-        void refreshResizeParams(VkExtent2D swapchainExtent);
+        void refreshResizeParams(VkExtent2D swapchainExtent) const;
 
         void registerRenderers() override;
 
@@ -175,7 +176,9 @@ namespace merutilm::rff2 {
         void beforeIterationFill() const;
 
         bool prepareRenderData(float startTime, const Settings &s);
+        void fillIterationComputeShader(const NormalMB2Reference *lightRef, float startTime, const Settings &s);
 
+        void fillIterationMultithreaded(float startTime, const Settings &s);
         bool fillIteration(float startTime, const Settings &s);
 
         void afterComputeFinally(bool success);
@@ -212,18 +215,39 @@ namespace merutilm::rff2 {
             return {renderData->fractalSettings.general.logZoom,
                     renderData->getReference()->longestPeriod(),
                     renderData->fractalSettings.perturb.maxIteration,
-                    renderer->iterationStagingBufferContext->getData(),
-                    renderer->iterationStagingBufferContext->getWidth(),
-                    renderer->iterationStagingBufferContext->getHeight()};
+                    renderer->visibleIterationBufferContext->getData(),
+                    renderer->visibleIterationBufferContext->getWidth(),
+                    renderer->visibleIterationBufferContext->getHeight()};
         }
 
-        [[nodiscard]] bool isIdleCompute() const { return idleCompute; }
+        struct IterationSnapshot {
+            uint16_t width = 0;
+            uint16_t height = 0;
+            std::vector<double> values;
+
+            [[nodiscard]] bool valid() const {
+                return width >= 3 && height >= 3 && values.size() == static_cast<size_t>(width) * height;
+            }
+
+            [[nodiscard]] double at(const uint16_t x, const uint16_t y) const {
+                return values[static_cast<size_t>(y) * width + x];
+            }
+        };
+
+        [[nodiscard]] IterationSnapshot getIterationSnapshot() const {
+            if (!renderer || !renderer->visibleIterationBufferContext)
+                return {};
+            auto &buffer = *renderer->visibleIterationBufferContext;
+            return {buffer.getWidth(), buffer.getHeight(), buffer.getData()};
+        }
+
+        [[nodiscard]] bool isIdleCompute() const {
+            return requests.recomputeRequestedState.load() == ComputeState::IDLE;
+        }
 
         [[nodiscard]] bool getLastRenderSucceeded() const { return lastRenderSucceeded.load(); }
 
-        [[nodiscard]] uint64_t getCompletedRenderCount() const { return completedRenderCount; }
-
-        [[nodiscard]] const Matrix<double> *getIterationMatrix() const { return actualIterationMatrix.get(); }
+        [[nodiscard]] uint64_t getCompletedRenderCount() const { return completedRenderCount.load(); }
 
         [[nodiscard]] AutoExplorer &getAutoExplorer() { return autoExplorer; }
 
@@ -236,20 +260,13 @@ namespace merutilm::rff2 {
             navigationLocked = true;
             unlockNavigationAfterRender = false;
             wheelZoomRenderPending = false;
-            requests.recomputeRequested = false;
+            auto expected = ComputeState::REQUESTED;
+            requests.recomputeRequestedState.compare_exchange_strong(expected, ComputeState::IDLE);
             guidedZoomTarget = {};
             guidedZoomTargetCached = false;
         }
 
-        void beginRenderPoolNavigationLock() {
-            cancelGuidedZoomSearch();
-            navigationLocked = true;
-            unlockNavigationAfterRender = false;
-            wheelZoomRenderPending = false;
-            requests.recomputeRequested = false;
-            guidedZoomTarget = {};
-            guidedZoomTargetCached = false;
-        }
+        void beginRenderPoolNavigationLock() { beginNewtonNavigationLock(); }
 
         void unlockNavigationNow() {
             unlockNavigationAfterRender = false;
@@ -271,6 +288,7 @@ namespace merutilm::rff2 {
         void onResize(VkExtent2D newExtent);
 
         void onQuit();
+        void resolveRequests();
 
         VideoProgressInfo &getVideoProgressInfo() { return videoProgressInfo; }
 

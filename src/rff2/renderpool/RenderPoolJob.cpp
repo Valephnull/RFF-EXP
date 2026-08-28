@@ -119,7 +119,7 @@ namespace merutilm::rff2 {
         fractal.mpa.minSkipReference = minimumSkippedReference;
         fractal.mpa.maxMultiplierBetweenLevel = maximumMultiplierBetweenLevel;
         fractal.mpa.epsilonPower = approximationEpsilonPower;
-        fractal.mpa.mpaSelectionMethod = static_cast<FrtMPASelectionMethod>(approximationSelectionMethod);
+        fractal.mpa.selectionMethod = static_cast<FrtMPASelectionMethod>(approximationSelectionMethod);
         fractal.mpa.useCompress = compressApproximation;
         fractal.mpa.useParallelization = parallelizeApproximation;
         fractal.perturb.maxIteration = maxIteration;

@@ -29,7 +29,7 @@ namespace merutilm::rff2 {
 
 
     void CPCBoxBlur::cmdGaussianBlur(const uint32_t frameIndex, const uint32_t blurSizeDescIndex) {
-        const VkCommandBuffer cbh = wc.getCommandBuffer().getCommandBufferHandle(frameIndex);
+        const VkCommandBuffer cbh = wc.getCommandBufferGroup().getCommandBufferHandle(frameIndex);
         auto &blurDesc = getDescriptor(SET_BLUR_IMAGE);
 
         auto ctxGetter = [&blurDesc, &frameIndex](const uint32_t descIndex, const uint32_t binding) {
@@ -128,7 +128,7 @@ namespace merutilm::rff2 {
             auto bufferManager = vkh::HostDataObjectManager();
             bufferManager.reserve<float>(TARGET_BLUR_UBO_BLUR_SIZE);
             auto descUBO = std::make_unique<vkh::Uniform>(wc.core, std::move(bufferManager),
-                                                              vkh::BufferLock::LOCK_UNLOCK, true);
+                                                              vkh::BufferLocalization::BIDIRECTIONAL, true);
             descManager.appendUBO(BINDING_BLUR_RADIUS_UBO, VK_SHADER_STAGE_COMPUTE_BIT, std::move(descUBO));
             radDesc.emplace_back(std::move(descManager));
         }
