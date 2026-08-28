@@ -2,6 +2,14 @@
 
 Render Pool lets several RFF-EXP instances generate dynamic video keyframes for one host. It supports password-protected Internet pools and automatic local-network pools.
 
+## This Computer
+
+The **This Computer** mode uses the same managed job system as a render-pool host for dynamic keyframes. It shows the overall progress bar and colored frame dots, supports pausing and resuming the active calculation, and provides **Recalculate Reference Next Keyframe** and failed-frame retry controls without requiring a network pool.
+
+Single-computer and render-pool jobs share the same manifest and recovery format. After an interruption or restart, **Resume Interrupted Keyframe Job** validates the output folder, preserves every matching complete frame, and queues only missing or damaged frames. Results are verified through temporary files before they replace numbered `.rfm` and `.rfl` files. A job started in one mode can therefore be resumed in the other.
+
+Static PNG keyframes continue to use the original single-computer generator. The managed progress, recovery, and pause controls currently apply to dynamic `.rfm` jobs.
+
 ## Internet pool
 
 1. Open **Video > Rendering Process** and choose **Render Pool**.
@@ -45,7 +53,7 @@ The host's output width, output height, and Clarity multiplier are part of the j
 
 ## Current scope
 
-- Dynamic `.rfm` video keyframes are supported. Static PNG keyframes are not distributed yet.
+- Managed single-computer and distributed jobs support dynamic `.rfm` video keyframes. Static PNG keyframes remain single-computer only and use the original generator.
 - Internet pool IDs encode the UPnP gateway's public IPv4 address plus a typo-detection digit and use TCP port `48191`.
 - LAN discovery uses IPv4 multicast, IPv4 broadcast, and a loopback fallback. The first compatible LAN host to answer is used.
 - Passwords are not transmitted directly; Internet mode uses a salted PBKDF2 proof. Rendered data is not yet end-to-end encrypted, so do not use an Internet pool for sensitive material or across an untrusted network.

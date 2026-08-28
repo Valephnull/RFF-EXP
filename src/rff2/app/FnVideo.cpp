@@ -78,31 +78,38 @@ namespace merutilm::rff2 {
     void FnVideo::renderingProcessMenu(RFF2 &) { ImGui::Checkbox("Rendering Process", &showRenderingProcess); }
 
     void FnVideo::renderingProcessWindow(RFF2 &app) {
-        if (app.getRenderPool().isActive())
+        const bool renderPoolActive = app.getRenderPool().isActive();
+        const bool localJobActive = app.getRenderPool().isLocalActive();
+        const bool renderingProcessActive = renderPoolActive || localJobActive;
+        if (renderingProcessActive)
             showRenderingProcess = true;
         if (!showRenderingProcess)
             return;
-        bool *open = app.getRenderPool().isActive() ? nullptr : &showRenderingProcess;
+        bool *open = renderingProcessActive ? nullptr : &showRenderingProcess;
         if (!ImGui::Begin("Rendering Process", open)) {
             ImGui::End();
             return;
         }
 
-        const bool processLocked = app.isNavigationLocked() && !app.getRenderPool().isActive();
+        const bool processLocked = app.isNavigationLocked() && !renderingProcessActive;
         int mode = static_cast<int>(renderingProcessMode);
         const char *modes[] = {"This Computer", "Render Pool"};
-        ImGui::BeginDisabled(app.getRenderPool().isActive() || processLocked);
+        ImGui::BeginDisabled(renderingProcessActive || processLocked);
         if (ImGui::Combo("Mode", &mode, modes, static_cast<int>(std::size(modes))))
             renderingProcessMode = static_cast<RenderingProcessMode>(mode);
         ImGui::EndDisabled();
 
-        if (app.getRenderPool().isActive())
+        if (renderPoolActive)
             renderingProcessMode = RenderingProcessMode::RENDER_POOL;
+        else if (localJobActive)
+            renderingProcessMode = RenderingProcessMode::THIS_COMPUTER;
 
         ImGui::BeginDisabled(processLocked);
         if (renderingProcessMode == RenderingProcessMode::THIS_COMPUTER) {
-            ImGui::TextWrapped("Generate all keyframes on this computer.");
-            generateVidKeyframes(app);
+            if (localJobActive || !app.getSettings().video.data.isStatic)
+                app.getRenderPool().renderLocalPanel(app);
+            else
+                generateVidKeyframes(app);
         } else {
             app.getRenderPool().renderPanel(app);
         }
@@ -145,7 +152,8 @@ namespace merutilm::rff2 {
                         // incomplete frame
                         app.getRequests().requestRecompute();
                         thread.waitUntil([&app, &state] {
-                            return app.getRequests().recomputeRequestedState == ComputeState::IDLE || state.interruptRequested();
+                            return app.getRequests().recomputeRequestedState == ComputeState::IDLE ||
+                                   state.interruptRequested();
                         });
                     }
                     if (state.interruptRequested()) {
@@ -177,7 +185,8 @@ namespace merutilm::rff2 {
     }
     void FnVideo::exportZoomVideo(RFF2 &app) {
         if (ImGui::Button("Export Zooming Video", ImVec2(-FLT_MIN, 0))) {
-            app.getBackgroundThreads().createThread([&app, settingsClone = app.getSettings()](const BackgroundThread &) {
+            app.getBackgroundThreads().createThread([&app,
+                                                     settingsClone = app.getSettings()](const BackgroundThread &) {
                 const auto openPtr = IOUtilities::ioDirectoryDialog();
 
                 if (openPtr == nullptr) {

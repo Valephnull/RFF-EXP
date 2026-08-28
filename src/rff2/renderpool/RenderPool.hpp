@@ -19,9 +19,11 @@ namespace merutilm::rff2 {
 
         void update(RFF2 &app);
         void renderPanel(RFF2 &app);
+        void renderLocalPanel(RFF2 &app);
         void shutdown(RFF2 *app = nullptr);
 
         [[nodiscard]] bool isActive() const;
+        [[nodiscard]] bool isLocalActive() const;
         [[nodiscard]] bool ownsNavigation() const;
     };
 } // namespace merutilm::rff2
