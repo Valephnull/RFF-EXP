@@ -10,8 +10,8 @@
 #include "vulkan_helper/util/BufferImageContextUtils.hpp"
 
 namespace merutilm::rff2 {
-    VideoWindowRenderManager::VideoWindowRenderManager(vkh::Engine &engine, vkh::WindowContext &wc, const VkExtent2D &videoExtent,
-                                       const Settings &targetSettings) :
+    VideoWindowRenderManager::VideoWindowRenderManager(vkh::Engine &engine, vkh::WindowContext &wc,
+                                                       const VkExtent2D &videoExtent, const Settings &targetSettings) :
         EngineHandler(engine), wc(wc), videoExtent(videoExtent), targetSettings(targetSettings) {
         VideoWindowRenderManager::init();
     }
@@ -19,8 +19,9 @@ namespace merutilm::rff2 {
     VideoWindowRenderManager::~VideoWindowRenderManager() { VideoWindowRenderManager::cleanup(); }
 
 
-    void VideoWindowRenderManager::applyCurrentDynamicMap(const RFFDynamicMapBinary &normal, const RFFDynamicMapBinary &zoomed,
-                                                  const float currentFrame) const {
+    void VideoWindowRenderManager::applyCurrentDynamicMap(const RFFDynamicMapBinary &normal,
+                                                          const RFFDynamicMapBinary &zoomed,
+                                                          const float currentFrame) const {
         wc.core.getLogicalDevice().waitDeviceIdle();
         auto &normalI = normal.iterations;
         if (currentFrame < 1) {
@@ -33,25 +34,31 @@ namespace merutilm::rff2 {
     }
 
     void VideoWindowRenderManager::setMaxIterationDynamic(const double maxIteration) const {
-        renderer->compute2MapIterationStripe->setInfo(maxIteration);
+        renderer->descriptorStorage->iteration->setMaxIteration(maxIteration);
+        renderer->descriptorStorage->iteration->applyMaxIteration();
     }
 
     void VideoWindowRenderManager::applyShader() const {
         engine.getCore().getLogicalDevice().waitDeviceIdle();
-        renderer->compute2MapIterationStripe->setPalette(targetSettings.shader.palette);
+        // shared
+        renderer->descriptorStorage->palette->set(targetSettings.shader.palette);
+        renderer->descriptorStorage->stripe->set(targetSettings.shader.stripe);
+        renderer->descriptorStorage->color->set(targetSettings.shader.color);
+        renderer->descriptorStorage->fog->set(targetSettings.shader.fog);
+        renderer->descriptorStorage->bloom->set(targetSettings.shader.bloom);
+        renderer->descriptorStorage->sampling->set(targetSettings.shader.sampling);
+        renderer->descriptorStorage->video->setDefaultZoomIncrement(targetSettings.video.data.defaultZoomIncrement);
+
+        // unique
         renderer->compute2MapIterationStripe->set2MapSize(videoExtent);
-        renderer->compute2MapIterationStripe->setDefaultZoomIncrement(targetSettings.video.data.defaultZoomIncrement);
-        renderer->compute2MapIterationStripe->setStripe(targetSettings.shader.stripe);
-        renderer->compute2MapIterationStripe->setSampling(targetSettings.shader.sampling);
-        renderer->rg2->color->setColor(targetSettings.shader.color);
-        renderer->rg3->fog->setFog(targetSettings.shader.fog);
-        renderer->rg4->bloom->setBloom(targetSettings.shader.bloom);
     }
 
     void VideoWindowRenderManager::setTime(const float currentSec) const { renderer->currentSec = currentSec; }
 
 
-    void VideoWindowRenderManager::setCurrentFrame(const float currentFrame) const { renderer->currentFrame = currentFrame; }
+    void VideoWindowRenderManager::setCurrentFrame(const float currentFrame) const {
+        renderer->currentFrame = currentFrame;
+    }
 
     void VideoWindowRenderManager::setStatic(const bool isStatic) const { renderer->isStaticImages = isStatic; }
 
@@ -80,11 +87,12 @@ namespace merutilm::rff2 {
             sp->renderContextRefreshed();
         }
 
-        renderer->rgDownsample->downsample->setRescaledResolution(GPCDownsampleForBlur::DESC_INDEX_RESAMPLE_IMAGE_FOG, {bWidth, bHeight});
-        renderer->rgDownsample->downsample->setRescaledResolution(GPCDownsampleForBlur::DESC_INDEX_RESAMPLE_IMAGE_BLOOM, {bWidth, bHeight});
+        renderer->rgDownsample->downsample->setRescaledResolution(GPCDownsampleForBlur::DESC_INDEX_RESAMPLE_IMAGE_FOG,
+                                                                  {bWidth, bHeight});
+        renderer->rgDownsample->downsample->setRescaledResolution(GPCDownsampleForBlur::DESC_INDEX_RESAMPLE_IMAGE_BLOOM,
+                                                                  {bWidth, bHeight});
         renderer->rgPresent->present->setRescaledResolution({sWidth, sHeight});
     }
-
 
 
     void VideoWindowRenderManager::refreshSharedImgContext() const {
@@ -137,9 +145,7 @@ namespace merutilm::rff2 {
     }
 
 
-    void VideoWindowRenderManager::renderOnce() const {
-        renderer->render();
-    }
+    void VideoWindowRenderManager::renderOnce() const { renderer->render(); }
 
     float VideoWindowRenderManager::calculateLogZoom(const float defaultZoomIncrement, const float currentFrame) const {
         if (currentFrame < 1) {
@@ -181,18 +187,19 @@ namespace merutilm::rff2 {
 
         vkh::BufferContext::mapMemory(wc.core, dstBuffer);
         {
-            vkh::ScopedCommandBufferExecutor executor(wc, wc.getCommandBufferGroup().getCommandBufferHandle(frameIndex),
-                                                      wc.getSyncObject().getFence(frameIndex).getFenceHandle(),
-                                                      VK_NULL_HANDLE, VK_NULL_HANDLE);
-            vkh::BufferImageContextUtils::cmdCopyBuffer(wc.getCommandBufferGroup().getCommandBufferHandle(frameIndex),
+            vkh::ScopedCommandBufferExecutor executor(wc, wc.getCommandBufferGroup().getCommandBuffer(frameIndex),
+                                                      wc.getSyncObject().getFence(frameIndex), VK_NULL_HANDLE,
+                                                      VK_NULL_HANDLE);
+            vkh::BufferImageContextUtils::cmdCopyBuffer(wc.getCommandBufferGroup().getCommandBuffer(frameIndex),
                                                         srcBuffer, dstBuffer);
         }
         wc.getSyncObject().getFence(frameIndex).wait();
 
         vkh::BufferContext::unmapMemory(wc.core, dstBuffer);
-        return VideoBufferCache(wc.core, std::move(dstBuffer), static_cast<int>(videoExtent.width),
-                                static_cast<int>(videoExtent.height),
-                                calculateLogZoom(targetSettings.video.data.defaultZoomIncrement, renderer->currentFrame));
+        return VideoBufferCache(
+                wc.core, std::move(dstBuffer), static_cast<int>(videoExtent.width),
+                static_cast<int>(videoExtent.height),
+                calculateLogZoom(targetSettings.video.data.defaultZoomIncrement, renderer->currentFrame));
     }
 
     void VideoWindowRenderManager::init() {

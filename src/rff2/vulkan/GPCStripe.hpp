@@ -4,8 +4,6 @@
 
 #pragma once
 #include "vulkan_helper/engine/configurator/GeneralPostProcessGraphicsPipelineConfigurator.hpp"
-#include "../settings/ShdSamplingSettings.hpp"
-#include "../settings/ShdStripeSettings.h"
 
 namespace merutilm::rff2 {
     struct GPCStripe final : public vkh::GeneralPostProcessGraphicsPipelineConfigurator {
@@ -18,9 +16,8 @@ namespace merutilm::rff2 {
         static constexpr uint32_t SET_TIME = 3;
         static constexpr uint32_t SET_SAMPLING = 4;
 
-        explicit GPCStripe(vkh::Engine &engine, vkh::WindowContext &wc) : GeneralPostProcessGraphicsPipelineConfigurator(
-            engine, wc, "vk_stripe.frag") {
-        }
+        explicit GPCStripe(vkh::Engine &engine, vkh::WindowContext &wc) :
+            GeneralPostProcessGraphicsPipelineConfigurator(engine, wc, "vk_stripe.frag") {}
 
         ~GPCStripe() override = default;
 
@@ -35,10 +32,6 @@ namespace merutilm::rff2 {
 
         void updateQueue(vkh::DescriptorUpdateQueue &queue, uint32_t frameIndex) override;
 
-        void setStripe(const ShdStripeSettings &stripe) const;
-
-        void setSampling(const ShdSamplingSettings &sampling) const;
-
         void pipelineInitialized() override;
 
         void renderContextRefreshed() override;
@@ -48,4 +41,4 @@ namespace merutilm::rff2 {
 
         void configureDescriptors(std::vector<vkh::Descriptor *> &descriptors) override;
     };
-}
+} // namespace merutilm::rff2

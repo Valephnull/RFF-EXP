@@ -18,6 +18,7 @@
 #include "../preset/Presets.h"
 #include "../renderpool/RenderPool.hpp"
 #include "../settings/Settings.h"
+#include "../vulkan/desc/SharedDescriptorStorage.hpp"
 #include "AutoExplorer.hpp"
 #include "ComputeShaderRenderManager.hpp"
 #include "CrashRecovery.hpp"
@@ -117,6 +118,8 @@ namespace merutilm::rff2 {
         RFF2(RFF2 &&) = delete;
 
         RFF2 &operator=(RFF2 &&) = delete;
+
+        void updateMouseInteraction();
 
         void update();
 

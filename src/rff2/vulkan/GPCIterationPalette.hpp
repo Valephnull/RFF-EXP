@@ -4,8 +4,7 @@
 
 #pragma once
 
-#include "../settings/ShdPaletteSettings.h"
-#include "../settings/ShdSamplingSettings.hpp"
+#include "../settings/PerturbationMainIterator.hpp"
 #include "vulkan_helper/engine/configurator/GeneralPostProcessGraphicsPipelineConfigurator.hpp"
 
 namespace merutilm::rff2 {
@@ -13,10 +12,11 @@ namespace merutilm::rff2 {
         static constexpr uint32_t SET_ITERATION = 0;
         static constexpr uint32_t SET_PALETTE = 1;
         static constexpr uint32_t SET_TIME = 2;
-        static constexpr uint32_t SET_SAMPLING = 3;
+        static constexpr uint32_t SET_BATCH_RESULT = 3;
+        static constexpr uint32_t SET_SMOOTH_ZOOM = 4;
+        static constexpr uint32_t SET_SAMPLING = 5;
 
-        uint32_t iterWidth = 0;
-        uint32_t iterHeight = 0;
+        static constexpr uint32_t SPECIALIZATION_PERTURBATION_MAIN_ITERATOR = 0;
 
         GPCIterationPalette(vkh::Engine &engine, vkh::WindowContext &wc) :
             GeneralPostProcessGraphicsPipelineConfigurator(engine, wc, "vk_iteration_palette.frag") {}
@@ -31,25 +31,11 @@ namespace merutilm::rff2 {
 
         GPCIterationPalette &operator=(GPCIterationPalette &&) = delete;
 
+        vkh::PipelineSpecialization createSpecializationInfo() override;
+
         void updateQueue(vkh::DescriptorUpdateQueue &queue, uint32_t frameIndex) override;
 
-        void cmdRefreshIterations(VkCommandBuffer cbh, const vkh::BufferContext &src) const;
-
-        [[nodiscard]] const vkh::BufferContext &getResultIterationBuffer() const;
-
-        void resetIterationBuffer(uint32_t width, uint32_t height);
-
-        void applyMaxIteration() const;
-
-        /**
-         * call applyMaxIteration to update params for gpu
-         */
-        void setMaxIteration(double maxIteration) const;
-
-        void setPalette(const ShdPaletteSettings &palette) const;
-
-        void setSampling(const ShdSamplingSettings &sampling) const;
-
+        void setPerturbationMainIterator(PerturbationMainIterator mainIterator);
 
         void pipelineInitialized() override;
 

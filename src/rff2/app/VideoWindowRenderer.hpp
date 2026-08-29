@@ -14,7 +14,8 @@
 #include "../vulkan/RenderGraphDownsampleForBlur.hpp"
 #include "../vulkan/RenderGraphPresent.hpp"
 #include "../vulkan/RenderGraphStatic2Image.hpp"
-#include "../vulkan/SharedDescriptorTemplate.hpp"
+#include "../vulkan/desc/SharedDescriptorStorage.hpp"
+#include "../vulkan/desc/SharedDescriptorTemplate.hpp"
 #include "vulkan_helper/base/vkh.hpp"
 #include "vulkan_helper/engine/configurator/PipelineConfigurator.hpp"
 #include "vulkan_helper/engine/executor/RenderPassFullscreenRecorder.hpp"
@@ -42,6 +43,8 @@ namespace merutilm::rff2 {
         CPC2MapIterationStripe *compute2MapIterationStripe = nullptr;
         CPCBoxBlur *computeBoxBlur = nullptr;
         CPCImageRGBA2BGR *computeImageRGBA2BGR = nullptr;
+
+        std::unique_ptr<SharedDescriptorStorage> descriptorStorage;
 
         const VkExtent2D &videoExtent;
 
@@ -71,6 +74,7 @@ namespace merutilm::rff2 {
                 const auto &swapchain = wc.getSwapchain();
                 return vkh::ImageContext::fromSwapchain(wc.core, swapchain);
             };
+            descriptorStorage = std::make_unique<SharedDescriptorStorage>(engine, wc);
             compute2MapIterationStripe =
                     vkh::ComputePipelineConfigurator::createComputePipeline<CPC2MapIterationStripe>(configurators,
                                                                                                     engine, wc);
@@ -100,9 +104,9 @@ namespace merutilm::rff2 {
         }
 
         void beforeCmdRender() override {
-            compute2MapIterationStripe->setTime(currentSec, frameIndex);
-            compute2MapIterationStripe->setCurrentFrame(currentFrame, frameIndex);
-            rg2->slope->setSlope(settings.shader.slope, 1, frameIndex);
+            descriptorStorage->time->setManualTime(currentSec, frameIndex);
+            descriptorStorage->slope->set(settings.shader.slope, 1, frameIndex);
+            descriptorStorage->video->setCurrentFrame(currentFrame, frameIndex);
             computeBoxBlur->setBlurInfo(CPCBoxBlur::DESC_INDEX_BLUR_TARGET_FOG, settings.shader.fog.radius,
                                         frameIndex);
             computeBoxBlur->setBlurInfo(CPCBoxBlur::DESC_INDEX_BLUR_TARGET_BLOOM, settings.shader.bloom.radius,
@@ -111,7 +115,7 @@ namespace merutilm::rff2 {
 
 
         void cmdRender(const uint32_t swapchainImageIndex) override {
-            const auto cbh = wc.getCommandBufferGroup().getCommandBufferHandle(frameIndex);
+            const auto cbh = wc.getCommandBufferGroup().getCommandBuffer(frameIndex).getCommandBufferHandle();
             const auto mfg = [this](const uint32_t index) {
                 return wc.getSharedImageContext().getImageContextMF(index)[frameIndex].image;
             };
@@ -120,12 +124,12 @@ namespace merutilm::rff2 {
 
                 vkh::BarrierUtils::cmdImageMemoryBarrier(
                         cbh, mfg(SharedImageContextIndices::MF_MAIN_RENDER_IMAGE_SECONDARY), VK_ACCESS_SHADER_WRITE_BIT,
-                        VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0,
+                        VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0,
                         1, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
             } else {
                 vkh::BarrierUtils::cmdImageMemoryBarrier(
                         cbh, mfg(SharedImageContextIndices::MF_MAIN_RENDER_IMAGE_PRIMARY), 0, VK_ACCESS_SHADER_READ_BIT,
-                        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, 0, 1, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
                 // [BARRIER] Init image
 
@@ -147,7 +151,7 @@ namespace merutilm::rff2 {
                                                           VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
                 vkh::BarrierUtils::cmdImageMemoryBarrier(
                         cbh, mfg(SharedImageContextIndices::MF_MAIN_RENDER_IMAGE_PRIMARY), VK_ACCESS_SHADER_WRITE_BIT,
-                        VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0,
+                        VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0,
                         1, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
 
                 // [BARRIER] SSBO (Result Iteration Buffer)
@@ -165,7 +169,7 @@ namespace merutilm::rff2 {
 
                 vkh::BarrierUtils::cmdSynchronizeImageWriteToRead(
                         cbh, mfg(SharedImageContextIndices::MF_MAIN_RENDER_IMAGE_PRIMARY),
-                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, 1, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
                 // [BARRIER] PRIMARY
 
@@ -177,7 +181,7 @@ namespace merutilm::rff2 {
 
                 vkh::BarrierUtils::cmdSynchronizeImageWriteToRead(
                         cbh, mfg(SharedImageContextIndices::MF_MAIN_RENDER_DOWNSAMPLED_IMAGE_PRIMARY),
-                        VK_IMAGE_LAYOUT_GENERAL, 0, 1, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                        VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
                 // [BARRIER] DOWNSAMPLED_PRIMARY
@@ -189,12 +193,12 @@ namespace merutilm::rff2 {
 
                 vkh::BarrierUtils::cmdSynchronizeImageWriteToRead(
                         cbh, mfg(SharedImageContextIndices::MF_MAIN_RENDER_IMAGE_PRIMARY),
-                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, 1, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
                 vkh::BarrierUtils::cmdImageMemoryBarrier(
                         cbh, mfg(SharedImageContextIndices::MF_MAIN_RENDER_DOWNSAMPLED_IMAGE_SECONDARY),
                         VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_GENERAL,
-                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, 1, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
                 // [BARRIER] PRIMARY
                 // [BARRIER] DOWNSAMPLED_SECONDARY
@@ -209,7 +213,7 @@ namespace merutilm::rff2 {
 
                 vkh::BarrierUtils::cmdSynchronizeImageWriteToRead(
                         cbh, mfg(SharedImageContextIndices::MF_MAIN_RENDER_IMAGE_PRIMARY),
-                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, 1, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
 
                 // [BARRIER] PRIMARY
@@ -221,7 +225,7 @@ namespace merutilm::rff2 {
 
                 vkh::BarrierUtils::cmdSynchronizeImageWriteToRead(
                         cbh, mfg(SharedImageContextIndices::MF_MAIN_RENDER_DOWNSAMPLED_IMAGE_PRIMARY),
-                        VK_IMAGE_LAYOUT_GENERAL, 0, 1, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                        VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
                 // [BARRIER] DOWNSAMPLED_PRIMARY
 
@@ -232,12 +236,12 @@ namespace merutilm::rff2 {
 
                 vkh::BarrierUtils::cmdSynchronizeImageWriteToRead(
                         cbh, mfg(SharedImageContextIndices::MF_MAIN_RENDER_IMAGE_SECONDARY),
-                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, 1, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
                 vkh::BarrierUtils::cmdImageMemoryBarrier(
                         cbh, mfg(SharedImageContextIndices::MF_MAIN_RENDER_DOWNSAMPLED_IMAGE_SECONDARY),
                         VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_GENERAL,
-                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, 1, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
 
                 // [BARRIER] SECONDARY
@@ -252,7 +256,7 @@ namespace merutilm::rff2 {
 
                 vkh::BarrierUtils::cmdSynchronizeImageWriteToRead(
                         cbh, mfg(SharedImageContextIndices::MF_MAIN_RENDER_IMAGE_SECONDARY),
-                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, 1, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
             }
 

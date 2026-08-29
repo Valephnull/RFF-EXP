@@ -15,9 +15,6 @@ namespace merutilm::rff2 {
 
 
         static constexpr uint32_t SET_SMOOTH_ZOOM = 1;
-        static constexpr uint32_t BINDING_SMOOTH_ZOOM_UBO = 0;
-        static constexpr uint32_t TARGET_SMOOTH_ZOOM_POSITION_DELTA = 0;
-        static constexpr uint32_t TARGET_SMOOTH_ZOOM_LOG_ZOOM_DELTA = 1;
 
     public:
         GPCSmoothZoom(vkh::Engine &engine, vkh::WindowContext &wc) :
@@ -29,11 +26,9 @@ namespace merutilm::rff2 {
         void renderContextRefreshed() override;
 
         void setRescaledResolution(const glm::vec2 &newResolution) const;
-        void setSmoothZoomData(const glm::vec2 &positionDelta, float logZoomDelta) const;
 
     protected:
         void configurePushConstant(vkh::PipelineLayoutManager &pipelineLayoutManager) override;
-        void resetSmoothZoom() const;
         void configureDescriptors(std::vector<vkh::Descriptor *> &descriptors) override;
     };
 }

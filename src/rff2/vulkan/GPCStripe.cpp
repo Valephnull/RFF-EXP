@@ -4,55 +4,19 @@
 
 #include "GPCStripe.hpp"
 
-#include <algorithm>
-
-#include "../settings/ShdStripeSettings.h"
-#include "SharedDescriptorTemplate.hpp"
 #include "SharedImageContextIndices.hpp"
+#include "desc/SharedDescriptorTemplate.hpp"
 #include "vulkan_helper/engine/repo/GlobalSamplerRepo.hpp"
 #include "vulkan_helper/util/DescriptorUpdater.hpp"
 
 
 namespace merutilm::rff2 {
     void GPCStripe::updateQueue(vkh::DescriptorUpdateQueue &queue, const uint32_t frameIndex) {
-        //no operation
-    }
-
-    void GPCStripe::setStripe(const ShdStripeSettings &stripe) const {
-        using namespace SharedDescriptorTemplate;
-        auto &stripeDesc = getDescriptor(SET_STRIPE);
-        auto &stripeUBO = stripeDesc.get<vkh::Uniform>(0, DescStripe::BINDING_UBO_STRIPE);
-        auto &stripeUBOHost = stripeUBO.getHostObject();
-        stripeUBOHost.set(DescStripe::TARGET_STRIPE_TYPE, static_cast<uint32_t>(stripe.stripeType));
-        stripeUBOHost.set(DescStripe::TARGET_STRIPE_FIRST_INTERVAL,
-                          stripe.firstInterval);
-        stripeUBOHost.set(DescStripe::TARGET_STRIPE_SECOND_INTERVAL,
-                          stripe.secondInterval);
-        stripeUBOHost.set(DescStripe::TARGET_STRIPE_OPACITY, stripe.opacity);
-        stripeUBOHost.set(DescStripe::TARGET_STRIPE_OFFSET, stripe.offset);
-        stripeUBOHost.set(DescStripe::TARGET_STRIPE_ANIMATION_SPEED,
-                          stripe.animationSpeed);
-        stripeUBOHost.set(DescStripe::TARGET_STRIPE_ITERATION_COLORING,
-                          stripe.iterationColoring);
-        stripeUBO.update();
-
-    }
-
-    void GPCStripe::setSampling(const ShdSamplingSettings &sampling) const {
-        using namespace SharedDescriptorTemplate;
-        auto &samplingUBO = getDescriptor(SET_SAMPLING).get<vkh::Uniform>(0, DescSampling::BINDING_UBO_SAMPLING);
-        auto &host = samplingUBO.getHostObject();
-        host.set<bool>(DescSampling::TARGET_SAMPLING_BILINEAR, sampling.bilinear);
-        host.set<uint32_t>(DescSampling::TARGET_SAMPLING_COUNT, std::clamp(sampling.sampleCount, 1u, 256u));
-        samplingUBO.update();
+        // no operation
     }
 
     void GPCStripe::pipelineInitialized() {
-        using namespace SharedDescriptorTemplate;
-        writeDescriptorMF([this](vkh::DescriptorUpdateQueue &queue, const uint32_t frameIndex) {
-            getDescriptor(SET_STRIPE).queue(queue, frameIndex, {}, {DescStripe::BINDING_UBO_STRIPE});
-            getDescriptor(SET_SAMPLING).queue(queue, frameIndex, {}, {DescSampling::BINDING_UBO_SAMPLING});
-        });
+        // noop
     }
 
     void GPCStripe::renderContextRefreshed() {
@@ -67,7 +31,7 @@ namespace merutilm::rff2 {
     }
 
     void GPCStripe::configurePushConstant(vkh::PipelineLayoutManager &pipelineLayoutManager) {
-        //noop
+        // noop
     }
 
     void GPCStripe::configureDescriptors(std::vector<vkh::Descriptor *> &descriptors) {
@@ -75,31 +39,30 @@ namespace merutilm::rff2 {
 
         auto descManager = vkh::DescriptorManager();
         vkh::Sampler &sampler = pickFromGlobalRepository<vkh::GlobalSamplerRepo, vkh::Sampler &>(
-            VkSamplerCreateInfo{
-                .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-                .pNext = nullptr,
-                .flags = 0,
-                .magFilter = VK_FILTER_NEAREST,
-                .minFilter = VK_FILTER_NEAREST,
-                .mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST,
-                .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
-                .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
-                .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
-                .mipLodBias = 0,
-                .anisotropyEnable = VK_FALSE,
-                .maxAnisotropy = 0,
-                .compareEnable = VK_FALSE,
-                .compareOp = VK_COMPARE_OP_ALWAYS,
-                .minLod = 0,
-                .maxLod = 0,
-                .borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK,
-                .unnormalizedCoordinates = VK_TRUE
-            });
-        descManager.appendCombinedImgSampler(BINDING_PREV_RESULT_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, std::make_unique<vkh::CombinedImageSampler>(wc.core, sampler, true));
+                VkSamplerCreateInfo{.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+                                    .pNext = nullptr,
+                                    .flags = 0,
+                                    .magFilter = VK_FILTER_NEAREST,
+                                    .minFilter = VK_FILTER_NEAREST,
+                                    .mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST,
+                                    .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
+                                    .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
+                                    .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
+                                    .mipLodBias = 0,
+                                    .anisotropyEnable = VK_FALSE,
+                                    .maxAnisotropy = 0,
+                                    .compareEnable = VK_FALSE,
+                                    .compareOp = VK_COMPARE_OP_ALWAYS,
+                                    .minLod = 0,
+                                    .maxLod = 0,
+                                    .borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK,
+                                    .unnormalizedCoordinates = VK_TRUE});
+        descManager.appendCombinedImgSampler(BINDING_PREV_RESULT_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT,
+                                             std::make_unique<vkh::CombinedImageSampler>(wc.core, sampler, true));
         appendUniqueDescriptor(SET_PREV_RESULT, descriptors, std::move(descManager));
         appendDescriptor<DescIteration>(SET_ITERATION, descriptors);
         appendDescriptor<DescStripe>(SET_STRIPE, descriptors);
         appendDescriptor<DescTime>(SET_TIME, descriptors);
         appendDescriptor<DescSampling>(SET_SAMPLING, descriptors);
     }
-}
+} // namespace merutilm::rff2

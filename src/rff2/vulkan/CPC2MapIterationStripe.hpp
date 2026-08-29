@@ -4,9 +4,6 @@
 
 #pragma once
 #include <vulkan_helper/engine/configurator/ComputePipelineConfigurator.hpp>
-#include "../settings/ShdPaletteSettings.h"
-#include "../settings/ShdSamplingSettings.hpp"
-#include "../settings/ShdStripeSettings.h"
 
 namespace merutilm::rff2 {
     struct CPC2MapIterationStripe final : public vkh::ComputePipelineConfigurator {
@@ -25,9 +22,8 @@ namespace merutilm::rff2 {
         static constexpr uint32_t SET_STRIPE = 6;
         static constexpr uint32_t SET_SAMPLING = 7;
 
-        explicit CPC2MapIterationStripe(vkh::Engine &engine, vkh::WindowContext &wc)
-            : ComputePipelineConfigurator(engine, wc, "vk_2_map_iter_stripe.comp") {
-        }
+        explicit CPC2MapIterationStripe(vkh::Engine &engine, vkh::WindowContext &wc) :
+            ComputePipelineConfigurator(engine, wc, "vk_2_map_iter_stripe.comp") {}
 
         ~CPC2MapIterationStripe() override = default;
 
@@ -49,27 +45,13 @@ namespace merutilm::rff2 {
 
         void renderContextRefreshed() override;
 
-        void setCurrentFrame(float currentFrame, uint32_t frameIndex) const;
-
-        void setPalette(const ShdPaletteSettings &palette) const;
-
-        void setStripe(const ShdStripeSettings &stripe) const;
-
-        void setSampling(const ShdSamplingSettings &sampling) const;
-
-        void setDefaultZoomIncrement(float defaultZoomIncrement) const;
-
         void setAllIterations(const std::vector<double> &normal, const std::vector<double> &zoomed) const;
 
         void set2MapSize(const VkExtent2D &extent);
-
-        void setInfo(double maxIteration) const;
-
-        void setTime(float currentSec, uint32_t frameIndex) const;
 
     protected:
         void configurePushConstant(vkh::PipelineLayoutManager &pipelineLayoutManager) override;
 
         void configureDescriptors(std::vector<vkh::Descriptor *> &descriptors) override;
     };
-}
+} // namespace merutilm::rff2

@@ -15,6 +15,7 @@ namespace merutilm::rff2 {
 
         static constexpr uint32_t SET_ITERATION = 0;
         static constexpr uint32_t SET_RENDER_META = 1;
+        static constexpr uint32_t SET_BATCH_RESULT = 2;
 
 
         static constexpr uint32_t SPECIALIZATION_MPA_MODE = 0;
@@ -31,19 +32,7 @@ namespace merutilm::rff2 {
 
         vkh::PipelineSpecialization createSpecializationInfo() override;
 
-        [[nodiscard]] const vkh::BufferContext &getWriteBuffer() const;
-
-        void resetWriteBuffer(VkExtent2D extent, vkh::CommandPool &commandPool);
-        void setBatchSize(vkh::CommandPool &commandPool, uint32_t batchSize) const;
-
-        void setRenderMeta(const FractalSettings &frt, const RenderSettings &render,
-                           const std::vector<complex<float>> &reference, complex<float> offset, uint32_t maxIteration,
-                           const PA<float> *mpTableData, uint64_t tableLen, const MPAIndexMapper *mapperData,
-                           uint64_t mapperLen, vkh::CommandPool &commandPool);
-
-
-
-        [[nodiscard]] const vkh::BufferContext &getBatchResultBuffer() const;
+        void setMPAIgnore(bool ignore);
 
     protected:
         void configurePushConstant(vkh::PipelineLayoutManager &pipelineLayoutManager) override;

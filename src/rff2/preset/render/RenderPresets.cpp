@@ -6,8 +6,6 @@
 
 #include <thread>
 
-#include "../../settings/RndCmpMPAMode.hpp"
-
 
 namespace merutilm::rff2 {
     std::string RenderPresets::Potato::getName() const { return "Potato"; }
@@ -15,10 +13,12 @@ namespace merutilm::rff2 {
     RenderSettings RenderPresets::Potato::genRender() const {
         return RenderSettings{0.1f,
                               60,
+                              RndPixelRenderPriority::SWIZZLE,
                               {.use = false,
-                               .mpaMode = RndCmpMPAMode::FULL,
                                .preferredBatchDuration = 0.1f,
                                .allowedGlitchPixelCount = 0,
+                               .completelyIgnoreMpa = false,
+                               .automaticAcceptMpaBatches = 32,
                                .interpolateIsolated = true}};
     }
 
@@ -28,10 +28,12 @@ namespace merutilm::rff2 {
     RenderSettings RenderPresets::Low::genRender() const {
         return RenderSettings{0.3f,
                               60,
+                              RndPixelRenderPriority::SWIZZLE,
                               {.use = false,
-                               .mpaMode = RndCmpMPAMode::FULL,
                                .preferredBatchDuration = 0.1f,
                                .allowedGlitchPixelCount = 0,
+                               .completelyIgnoreMpa = false,
+                               .automaticAcceptMpaBatches = 32,
                                .interpolateIsolated = true}};
     }
 
@@ -40,10 +42,12 @@ namespace merutilm::rff2 {
     RenderSettings RenderPresets::Medium::genRender() const {
         return RenderSettings{0.5f,
                               60,
+                              RndPixelRenderPriority::SWIZZLE,
                               {.use = false,
-                               .mpaMode = RndCmpMPAMode::FULL,
                                .preferredBatchDuration = 0.1f,
                                .allowedGlitchPixelCount = 0,
+                               .completelyIgnoreMpa = false,
+                               .automaticAcceptMpaBatches = 32,
                                .interpolateIsolated = true}};
     }
 
@@ -52,10 +56,12 @@ namespace merutilm::rff2 {
     RenderSettings RenderPresets::High::genRender() const {
         return RenderSettings{1.0f,
                               60,
+                              RndPixelRenderPriority::SWIZZLE,
                               {.use = false,
-                               .mpaMode = RndCmpMPAMode::FULL,
                                .preferredBatchDuration = 0.1f,
                                .allowedGlitchPixelCount = 0,
+                               .completelyIgnoreMpa = false,
+                               .automaticAcceptMpaBatches = 32,
                                .interpolateIsolated = true}};
     }
 
@@ -64,10 +70,12 @@ namespace merutilm::rff2 {
     RenderSettings RenderPresets::Ultra::genRender() const {
         return RenderSettings{2.0f,
                               60,
+                              RndPixelRenderPriority::SWIZZLE,
                               {.use = false,
-                               .mpaMode = RndCmpMPAMode::FULL,
                                .preferredBatchDuration = 0.1f,
                                .allowedGlitchPixelCount = 0,
+                               .completelyIgnoreMpa = false,
+                               .automaticAcceptMpaBatches = 32,
                                .interpolateIsolated = true}};
     }
 
@@ -76,10 +84,12 @@ namespace merutilm::rff2 {
     RenderSettings RenderPresets::Extreme::genRender() const {
         return RenderSettings{4.0f,
                               60,
+                              RndPixelRenderPriority::SWIZZLE,
                               {.use = false,
-                               .mpaMode = RndCmpMPAMode::FULL,
                                .preferredBatchDuration = 0.1f,
                                .allowedGlitchPixelCount = 0,
+                               .completelyIgnoreMpa = false,
+                               .automaticAcceptMpaBatches = 32,
                                .interpolateIsolated = true}};
     }
 } // namespace merutilm::rff2

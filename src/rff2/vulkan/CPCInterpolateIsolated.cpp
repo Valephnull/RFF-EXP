@@ -4,7 +4,7 @@
 
 #include "CPCInterpolateIsolated.hpp"
 
-#include "SharedDescriptorTemplate.hpp"
+#include "desc/SharedDescriptorTemplate.hpp"
 namespace merutilm::rff2 {
 
     void CPCInterpolateIsolated::updateQueue(vkh::DescriptorUpdateQueue &queue, uint32_t frameIndex) {}
@@ -15,5 +15,6 @@ namespace merutilm::rff2 {
         using namespace SharedDescriptorTemplate;
         appendDescriptor<DescRenderMetaIterationVariant>(SET_ITERATION, descriptors);
         appendDescriptor<DescRenderMeta>(SET_RENDER_META, descriptors);
+        appendDescriptor<DescBatchResult>(SET_BATCH_RESULT, descriptors);
     }
 } // namespace merutilm::rff2

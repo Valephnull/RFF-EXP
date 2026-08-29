@@ -4,120 +4,31 @@
 
 #include "../vulkan/GPCIterationPalette.hpp"
 
-#include <algorithm>
-
 #include "../app/Utilities.h"
-#include "../settings/ShdPaletteSettings.h"
-#include "SharedDescriptorTemplate.hpp"
+#include "../settings/PerturbationMainIterator.hpp"
+#include "GPCSmoothZoom.hpp"
+#include "desc/SharedDescriptorTemplate.hpp"
 #include "vulkan_helper/util/BufferImageContextUtils.hpp"
 #include "vulkan_helper/util/DescriptorUpdater.hpp"
 
 namespace merutilm::rff2 {
+    vkh::PipelineSpecialization GPCIterationPalette::createSpecializationInfo() {
+        auto values = Selectable::values<PerturbationMainIterator>();
+        vkh::PipelineSpecialization specialization(values.size());
+        specialization.appendEntry(SPECIALIZATION_PERTURBATION_MAIN_ITERATOR, std::move(values));
+        return specialization;
+    }
+
+
     void GPCIterationPalette::updateQueue(vkh::DescriptorUpdateQueue &queue, const uint32_t frameIndex) {
-        using namespace SharedDescriptorTemplate;
-        auto &timeDesc = getDescriptor(SET_TIME);
-        auto &timeBinding = timeDesc.get<vkh::Uniform>(0, DescTime::BINDING_UBO_TIME);
-
-        timeBinding.getHostObject().set(DescTime::TARGET_TIME_CURRENT, wc.getWindow()->getTime());
-        timeBinding.updateMF(frameIndex);
+        // noop
     }
-
-    void GPCIterationPalette::cmdRefreshIterations(const VkCommandBuffer cbh, const vkh::BufferContext &src) const {
-        vkh::BufferImageContextUtils::cmdCopyBuffer(cbh, src, getResultIterationBuffer());
+    void GPCIterationPalette::setPerturbationMainIterator(PerturbationMainIterator mainIterator) {
+        specializationIndex = static_cast<uint32_t>(mainIterator);
     }
-
-    const vkh::BufferContext &GPCIterationPalette::getResultIterationBuffer() const {
-        using namespace SharedDescriptorTemplate;
-        auto &iterDesc = getDescriptor(SET_ITERATION);
-        auto &iterSSBO = iterDesc.get<vkh::ShaderStorage>(0, DescIteration::BINDING_SSBO_ITERATION_MATRIX);
-        return iterSSBO.getBufferContext();
-    }
-
-    void GPCIterationPalette::resetIterationBuffer(const uint32_t width, const uint32_t height) {
-        using namespace SharedDescriptorTemplate;
-        auto &iterDesc = getDescriptor(SET_ITERATION);
-        auto &iterUBO = iterDesc.get<vkh::Uniform>(0, DescIteration::BINDING_UBO_ITERATION_INFO);
-        auto &iterUBOHost = iterUBO.getHostObject();
-        auto &iterSSBO = iterDesc.get<vkh::ShaderStorage>(0, DescIteration::BINDING_SSBO_ITERATION_MATRIX);
-        auto &iterSSBOHost = iterSSBO.getHostObject();
-
-        this->iterWidth = width;
-        this->iterHeight = height;
-        iterUBOHost.set<glm::uvec2>(DescIteration::TARGET_UBO_ITERATION_EXTENT, {width, height});
-        iterUBO.update(DescIteration::TARGET_UBO_ITERATION_EXTENT);
-
-        iterSSBOHost.resizeArray<double>(DescIteration::TARGET_SSBO_ITERATION_BUFFER, width * height);
-        iterSSBO.reloadBuffer();
-        iterSSBO.localize(wc.getCommandPool());
-        writeDescriptorMF([&iterDesc](vkh::DescriptorUpdateQueue &queue, const uint32_t frameIndex) {
-            iterDesc.queue(queue, frameIndex, {}, {DescIteration::BINDING_SSBO_ITERATION_MATRIX});
-        });
-    }
-
-
-    void GPCIterationPalette::applyMaxIteration() const {
-        using namespace SharedDescriptorTemplate;
-        const auto &iterUBO =
-                getDescriptor(SET_ITERATION).get<vkh::Uniform>(0, DescIteration::BINDING_UBO_ITERATION_INFO);
-        iterUBO.update();
-    }
-
-
-    void GPCIterationPalette::setMaxIteration(const double maxIteration) const {
-        using namespace SharedDescriptorTemplate;
-        auto &iterUBO = getDescriptor(SET_ITERATION).get<vkh::Uniform>(0, DescIteration::BINDING_UBO_ITERATION_INFO);
-
-        iterUBO.getHostObject().set<double>(DescIteration::TARGET_UBO_ITERATION_MAX, maxIteration);
-    }
-
-    void GPCIterationPalette::setPalette(const ShdPaletteSettings &palette) const {
-        using namespace SharedDescriptorTemplate;
-        auto &paletteDesc = getDescriptor(SET_PALETTE);
-        auto &paletteSSBO = paletteDesc.get<vkh::ShaderStorage>(0, DescPalette::BINDING_SSBO_PALETTE);
-        auto &paletteSSBOHost = paletteSSBO.getHostObject();
-
-        const auto paletteLength = static_cast<uint32_t>(palette.colors.size());
-
-        paletteSSBOHost.set<uint32_t>(DescPalette::TARGET_PALETTE_SIZE, paletteLength);
-        paletteSSBOHost.set<float>(DescPalette::TARGET_PALETTE_INTERVAL, palette.iterationInterval);
-        paletteSSBOHost.set<double>(DescPalette::TARGET_PALETTE_OFFSET, palette.offsetRatio);
-        paletteSSBOHost.set<uint32_t>(DescPalette::TARGET_PALETTE_SMOOTHING,
-                                      static_cast<uint32_t>(palette.iterationColoring));
-        paletteSSBOHost.set<uint32_t>(DescPalette::TARGET_PALETTE_SINGLE_SMOOTHING,
-                                      static_cast<uint32_t>(palette.singleIterationColoring));
-        paletteSSBOHost.set<float>(DescPalette::TARGET_PALETTE_ANIMATION_SPEED, palette.animationSpeed);
-        paletteSSBOHost.resizeArray<glm::vec4>(DescPalette::TARGET_PALETTE_COLORS, paletteLength);
-        paletteSSBOHost.set<glm::vec4>(DescPalette::TARGET_PALETTE_COLORS, palette.colors);
-        paletteSSBO.reloadBuffer();
-        paletteSSBO.update();
-        paletteSSBO.localize(wc.getCommandPool());
-
-        writeDescriptorMF([&paletteDesc](vkh::DescriptorUpdateQueue &queue, const uint32_t frameIndex) {
-            paletteDesc.queue(queue, frameIndex, {}, {DescPalette::BINDING_SSBO_PALETTE});
-        });
-    }
-
-    void GPCIterationPalette::setSampling(const ShdSamplingSettings &sampling) const {
-        using namespace SharedDescriptorTemplate;
-        auto &samplingUBO = getDescriptor(SET_SAMPLING).get<vkh::Uniform>(0, DescSampling::BINDING_UBO_SAMPLING);
-        auto &host = samplingUBO.getHostObject();
-        host.set<bool>(DescSampling::TARGET_SAMPLING_BILINEAR, sampling.bilinear);
-        host.set<uint32_t>(DescSampling::TARGET_SAMPLING_COUNT, std::clamp(sampling.sampleCount, 1u, 256u));
-        samplingUBO.update();
-    }
-
 
     void GPCIterationPalette::pipelineInitialized() {
-        using namespace SharedDescriptorTemplate;
-        auto &timeDesc = getDescriptor(SET_TIME);
-        auto &iterDesc = getDescriptor(SET_ITERATION);
-        auto &samplingDesc = getDescriptor(SET_SAMPLING);
-        writeDescriptorMF([&timeDesc, &iterDesc, &samplingDesc](vkh::DescriptorUpdateQueue &queue,
-                                                                const uint32_t frameIndex) {
-            timeDesc.queue(queue, frameIndex, {}, {DescTime::BINDING_UBO_TIME});
-            iterDesc.queue(queue, frameIndex, {}, {DescIteration::BINDING_UBO_ITERATION_INFO});
-            samplingDesc.queue(queue, frameIndex, {}, {DescSampling::BINDING_UBO_SAMPLING});
-        });
+        // noop
     }
 
     void GPCIterationPalette::renderContextRefreshed() {
@@ -134,6 +45,8 @@ namespace merutilm::rff2 {
         appendDescriptor<DescIteration>(SET_ITERATION, descriptors);
         appendDescriptor<DescPalette>(SET_PALETTE, descriptors);
         appendDescriptor<DescTime>(SET_TIME, descriptors);
+        appendDescriptor<DescBatchResult>(SET_BATCH_RESULT, descriptors);
+        appendDescriptor<DescSmoothZoom>(SET_SMOOTH_ZOOM, descriptors);
         appendDescriptor<DescSampling>(SET_SAMPLING, descriptors);
     }
 } // namespace merutilm::rff2
