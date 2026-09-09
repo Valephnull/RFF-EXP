@@ -118,6 +118,8 @@ namespace merutilm::rff2 {
         auto expected = ComputeState::REQUESTED;
         if (requests.recomputeRequestedState.compare_exchange_weak(expected, ComputeState::RUNNING)) {
             cancelGuidedZoomSearch();
+            // This render snapshots the latest wheel-adjusted location.
+            wheelZoomRenderPending = false;
             canShowPreview = false;
             recomputeThreaded();
             // it is threaded, do not notify
@@ -180,10 +182,17 @@ namespace merutilm::rff2 {
         // the user's latest cursor anchor.
         constexpr double WHEEL_RENDER_DEBOUNCE_SECONDS = 0.09;
         const double now = rootWindowContext->getWindow()->getTime();
-        if (wheelZoomRenderPending && isIdleCompute() &&
+        if (wheelZoomRenderPending &&
             now - wheelZoomLastInputTime >= WHEEL_RENDER_DEBOUNCE_SECONDS) {
-            wheelZoomRenderPending = false;
-            requests.requestRecompute();
+            const ComputeState computeState = requests.recomputeRequestedState.load();
+            if (computeState == ComputeState::RUNNING) {
+                // Do not let a render for the pre-wheel location finish and
+                // replace the smooth preview. Interruption is non-blocking;
+                // the replacement render starts after the worker has exited.
+                state.interrupt();
+            } else if (computeState == ComputeState::IDLE || computeState == ComputeState::CANCELLED) {
+                requests.requestRecompute();
+            }
         }
 
         updateMouseInteraction();
@@ -780,7 +789,7 @@ namespace merutilm::rff2 {
         const float dt = t - time;
         time = t;
 
-        if (canShowPreview && !zoomAnimationInfo.aimChanged) {
+        if (canShowPreview && !zoomAnimationInfo.aimChanged && !wheelZoomRenderPending) {
             renderer->updateStagingBuffer |= renderer->visibleIterationBufferContext->fill();
             renderer->descriptorStorage->iteration->applyMaxIteration();
             zoomAnimationInfo.reset();
