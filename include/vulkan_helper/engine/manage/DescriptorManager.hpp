@@ -4,14 +4,16 @@
 
 #pragma once
 
+#include <vulkan_helper/engine/img/StorageImage.hpp>
 #include <vulkan_helper/engine/buffer/ShaderStorage.hpp>
 #include <vulkan_helper/engine/buffer/Uniform.hpp>
-#include <vulkan_helper/engine/sampler/CombinedImageSampler.hpp>
+#include <vulkan_helper/engine/img/CombinedImageSampler.hpp>
 #include <vulkan_helper/engine/wrapped/DescriptorSetLayoutBuildType.hpp>
 #include <vulkan_helper/engine/wrapped/InputAttachment.hpp>
-#include <vulkan_helper/engine/wrapped/StorageImage.hpp>
 #include <vulkan_helper/hash/DescriptorSetLayoutBuildTypeHasher.hpp>
 #include <vulkan_helper/hash/VectorHasher.hpp>
+
+#include "vulkan_helper/engine/buffer/ExternShaderStorage.hpp"
 
 namespace merutilm::vkh {
     using DescriptorSetLayoutBuilder = std::vector<DescriptorSetLayoutBuildType>;
@@ -20,7 +22,7 @@ namespace merutilm::vkh {
 
     using DescriptorType = std::variant<std::unique_ptr<Uniform>, std::unique_ptr<ShaderStorage>,
                                         std::unique_ptr<CombinedImageSampler>, std::unique_ptr<InputAttachment>,
-                                        std::unique_ptr<StorageImage>>;
+                                        std::unique_ptr<StorageImage>, std::unique_ptr<ExternShaderStorage>>;
 
 
     struct DescriptorManager {
@@ -44,12 +46,15 @@ namespace merutilm::vkh {
 
         void appendSSBO(uint32_t bindingExpected, VkShaderStageFlags useStage,  std::unique_ptr<ShaderStorage> &&ssbo);
 
+        void appendExternSSBO(uint32_t bindingExpected, VkShaderStageFlags useStage,  std::unique_ptr<ExternShaderStorage> &&ssbo);
+
         void appendCombinedImgSampler(uint32_t bindingExpected, VkShaderStageFlags useStage,
                                        std::unique_ptr<CombinedImageSampler> &&sampler);
 
         void appendInputAttachment(uint32_t bindingExpected, VkShaderStageFlags useStage);
 
-        void appendStorageImage(uint32_t bindingExpected, VkShaderStageFlags useStage);
+        void appendStorageImage(uint32_t bindingExpected, VkShaderStageFlags useStage,
+                                std::unique_ptr<StorageImage> &&image);
     };
 
 

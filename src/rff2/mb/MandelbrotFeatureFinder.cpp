@@ -209,10 +209,9 @@ namespace merutilm::rff2 {
                 // There is no fixed pass limit. Reject divergent motion or an exact
                 // finite-precision cycle so a pathological candidate cannot trap the UI.
                 if ((nextRefined - cursorOffsetFromReference).norm_sqr() > radiusSquared ||
-                    std::ranges::any_of(refinementHistory,
-                                        [&nextRefined](const complex<dex> &previous) {
-                                            return exactlyEqual(previous, nextRefined);
-                                        })) {
+                    std::ranges::any_of(refinementHistory, [&nextRefined](const complex<dex> &previous) {
+                        return exactlyEqual(previous, nextRefined);
+                    })) {
                     return std::nullopt;
                 }
                 refinementHistory.push_back(refined);
@@ -242,10 +241,12 @@ namespace merutilm::rff2 {
     std::optional<MandelbrotFeatureFinder::Result>
     MandelbrotFeatureFinder::find(const MB2RenderDataBase &data, const complex<dex> &cursorOffsetFromReference,
                                   const dex searchRadius, const std::stop_token stopToken) {
-        if (const auto *normal = dynamic_cast<const NormalMB2RenderData *>(&data))
-            return findWithReference(*normal, cursorOffsetFromReference, searchRadius, stopToken);
+        if (const auto *single = dynamic_cast<const FloatMB2RenderData *>(&data))
+            return findWithReference(*single, cursorOffsetFromReference, searchRadius, stopToken);
         if (const auto *wide = dynamic_cast<const DoubleMB2RenderData *>(&data))
             return findWithReference(*wide, cursorOffsetFromReference, searchRadius, stopToken);
+        if (const auto *extended = dynamic_cast<const FexMB2RenderData *>(&data))
+            return findWithReference(*extended, cursorOffsetFromReference, searchRadius, stopToken);
         if (const auto *deep = dynamic_cast<const DexMB2RenderData *>(&data))
             return findWithReference(*deep, cursorOffsetFromReference, searchRadius, stopToken);
         return std::nullopt;

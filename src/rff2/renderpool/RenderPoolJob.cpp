@@ -129,7 +129,7 @@ namespace merutilm::rff2 {
         fractal.perturb.interiorDetectRadiusPower = interiorDetectRadiusPower;
         fractal.perturb.autoIterationMultiplier = autoIterationMultiplier;
         fractal.perturb.absoluteIterationMode = absoluteIterationMode;
-        settings.render.clarityMultiplier = clarityMultiplier;
+        settings.render.display.clarityMultiplier = clarityMultiplier;
         settings.video.data.isStatic = false;
     }
 

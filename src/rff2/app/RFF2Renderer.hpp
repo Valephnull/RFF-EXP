@@ -41,7 +41,8 @@ namespace merutilm::rff2 {
         RenderGraph4 *rg4 = nullptr;
         RenderGraphPresentPrepareImgui *rccPresentPrepare = nullptr;
 
-        CPCIterate *computeIterate = nullptr;
+        CPCIterate<float> *computeIterateFloat = nullptr;
+        CPCIterate<fex> *computeIterateFex = nullptr;
         CPCInterpolateIsolated *computeIgnoreIsolated = nullptr;
         CPCBoxBlur *computeBoxBlur = nullptr;
 
@@ -79,42 +80,43 @@ namespace merutilm::rff2 {
             };
             descriptorStorage = std::make_unique<SharedDescriptorStorage>(engine, wc);
 
-            computeIterate = vkh::ComputePipelineConfigurator::createComputePipeline<CPCIterate>(configurators, engine, wc);
+            computeIterateFloat = vkh::ComputePipelineConfigurator::createComputePipeline<CPCIterate<float>>(configurators, engine, wc);
+            computeIterateFex = vkh::ComputePipelineConfigurator::createComputePipeline<CPCIterate<fex>>(configurators, engine, wc);
             computeIgnoreIsolated = vkh::ComputePipelineConfigurator::createComputePipeline<CPCInterpolateIsolated>(configurators, engine, wc);
             computeBoxBlur = vkh::ComputePipelineConfigurator::createComputePipeline<CPCBoxBlur>(configurators, engine, wc);
             rc0 = vkh::RenderContextUtils::attachRenderContext<RenderGraph0>(
                     &rg0, configurators, engine, wc,
                     [this] {
                         return RendererUtils::getInternalImageExtent(wc.getSwapchain().getSwapchainExtent(),
-                                                                     settings.render.clarityMultiplier);
+                                                                     settings.render.display.clarityMultiplier);
                     },
                     swapchainImageContextGetter);
             rc1 = vkh::RenderContextUtils::attachRenderContext<RenderGraph1>(
                     &rg1, configurators, engine, wc,
                     [this] {
                         return RendererUtils::getInternalImageExtent(wc.getSwapchain().getSwapchainExtent(),
-                                                                     settings.render.clarityMultiplier);
+                                                                     settings.render.display.clarityMultiplier);
                     },
                     swapchainImageContextGetter);
             rcDownsample = vkh::RenderContextUtils::attachRenderContext<RenderGraphDownsampleForBlur>(
                     &rccDownsample, configurators, engine, wc,
                     [this] {
                         return RendererUtils::getBlurredImageExtent(wc.getSwapchain().getSwapchainExtent(),
-                                                                    settings.render.clarityMultiplier);
+                                                                    settings.render.display.clarityMultiplier);
                     },
                     swapchainImageContextGetter);
             rc3 = vkh::RenderContextUtils::attachRenderContext<RenderGraph3>(
                     &rg3, configurators, engine, wc,
                     [this] {
                         return RendererUtils::getInternalImageExtent(wc.getSwapchain().getSwapchainExtent(),
-                                                                     settings.render.clarityMultiplier);
+                                                                     settings.render.display.clarityMultiplier);
                     },
                     swapchainImageContextGetter);
             rc4 = vkh::RenderContextUtils::attachRenderContext<RenderGraph4>(
                     &rg4, configurators, engine, wc,
                     [this] {
                         return RendererUtils::getInternalImageExtent(wc.getSwapchain().getSwapchainExtent(),
-                                                                     settings.render.clarityMultiplier);
+                                                                     settings.render.display.clarityMultiplier);
                     },
                     swapchainImageContextGetter);
             rcPresent = vkh::RenderContextUtils::attachRenderContext<RenderGraphPresentPrepareImgui>(

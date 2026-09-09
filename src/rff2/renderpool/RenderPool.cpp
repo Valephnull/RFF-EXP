@@ -599,7 +599,7 @@ namespace merutilm::rff2 {
             manifest.windowHeight = extent.height;
             manifest.startLogZoom = fractal.general.logZoom;
             manifest.zoomIncrement = std::log10(settings.video.data.defaultZoomIncrement);
-            manifest.clarityMultiplier = settings.render.clarityMultiplier;
+            manifest.clarityMultiplier = settings.render.display.clarityMultiplier;
             manifest.centerReal = fractal.reference.center.real.to_string();
             manifest.centerImag = fractal.reference.center.imag.to_string();
             manifest.bailout = fractal.general.bailout;

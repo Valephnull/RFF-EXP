@@ -1,0 +1,148 @@
+#version 450
+#include <common.glsl>
+
+// define descriptors
+#define DESC_PALETTE 2
+#define DESC_TIME 3
+#define DESC_ITERATION 5
+#define DESC_STRIPE 6
+#define DESC_SLOPE 7
+#define DESC_COLOR 8
+#define DESC_SAMPLING 9
+
+// include descriptors
+#include <desc_iteration.glsl>
+#include <desc_palette.glsl>
+#include <desc_time.glsl>
+#include <desc_stripe.glsl>
+#include <desc_slope.glsl>
+#include <desc_color.glsl>
+#include <desc_sampling.glsl>
+
+// include utilities
+#include <utils_iteration.glsl>
+#include <utils_iteration_filter.glsl>
+#include <utils_palette.glsl>
+#include <utils_stripe.glsl>
+#include <utils_slope.glsl>
+#include <utils_color.glsl>
+#include <utils_stochastic.glsl>
+
+layout (set = 0, binding = 0) buffer Iteration2MapNormalSSBO {
+    double iterations[];
+} it2map_normal_settings;
+
+layout (set = 0, binding = 1) buffer Iteration2MapZoomedSSBO {
+    double iterations[];
+} it2map_zoomed_settings;
+
+layout (set = 1, binding = 0) uniform VideoUBO {
+    float default_zoom_increment;
+    float current_frame;
+} video_settings;
+
+layout (set = 4, binding = 0, rgba8) writeonly uniform image2D merged_image_output;
+
+layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+double get_iteration_normal(ivec2 iter_coord, ivec2 offset) {
+    return it2map_normal_settings.iterations[get_iteration_index(iter_coord, offset)];
+}
+
+double get_iteration_zoomed(ivec2 iter_coord, ivec2 offset) {
+    return it2map_zoomed_settings.iterations[get_iteration_index(iter_coord, offset)];
+}
+
+double get_iteration_normal(vec2 coordinate) {
+    if (!sampling_settings.bilinear)
+        return get_iteration_normal(ivec2(coordinate), ivec2(0));
+
+    ivec2 base = ivec2(floor(coordinate));
+    vec2 fraction = fract(coordinate);
+    return filtered_bilinear_iteration(
+            dvec4(get_iteration_normal(base, ivec2(0, 0)),
+                  get_iteration_normal(base, ivec2(1, 0)),
+                  get_iteration_normal(base, ivec2(0, 1)),
+                  get_iteration_normal(base, ivec2(1, 1))), fraction);
+}
+
+double get_iteration_zoomed(vec2 coordinate) {
+    if (!sampling_settings.bilinear)
+        return get_iteration_zoomed(ivec2(coordinate), ivec2(0));
+
+    ivec2 base = ivec2(floor(coordinate));
+    vec2 fraction = fract(coordinate);
+    return filtered_bilinear_iteration(
+            dvec4(get_iteration_zoomed(base, ivec2(0, 0)),
+                  get_iteration_zoomed(base, ivec2(1, 0)),
+                  get_iteration_zoomed(base, ivec2(0, 1)),
+                  get_iteration_zoomed(base, ivec2(1, 1))), fraction);
+}
+
+vec3 get_normal_final_color(vec2 coordinate, float scale) {
+    double n = get_iteration_normal(coordinate);
+    if (!valid_iteration_sample(n))
+        return vec3(0.0);
+
+    double nld = get_iteration_normal(coordinate + vec2(-1, -1));
+    double nd = get_iteration_normal(coordinate + vec2(0, -1));
+    double nrd = get_iteration_normal(coordinate + vec2(1, -1));
+    double nl = get_iteration_normal(coordinate + vec2(-1, 0));
+    double nr = get_iteration_normal(coordinate + vec2(1, 0));
+    double nlu = get_iteration_normal(coordinate + vec2(-1, 1));
+    double nu = get_iteration_normal(coordinate + vec2(0, 1));
+    double nru = get_iteration_normal(coordinate + vec2(1, 1));
+    float shade = slope_get_shade(nld, nd, nrd, nl, nr, nlu, nu, nru, ivec2(floor(coordinate)), 1 / scale);
+    return color_apply(palette_get_color(n).rgb * stripe_get_multiplier(n) * shade);
+}
+
+vec3 get_zoomed_final_color(vec2 coordinate, float scale) {
+    double n = get_iteration_zoomed(coordinate);
+    if (!valid_iteration_sample(n))
+        return vec3(0.0);
+
+    double nld = get_iteration_zoomed(coordinate + vec2(-1, -1));
+    double nd = get_iteration_zoomed(coordinate + vec2(0, -1));
+    double nrd = get_iteration_zoomed(coordinate + vec2(1, -1));
+    double nl = get_iteration_zoomed(coordinate + vec2(-1, 0));
+    double nr = get_iteration_zoomed(coordinate + vec2(1, 0));
+    double nlu = get_iteration_zoomed(coordinate + vec2(-1, 1));
+    double nu = get_iteration_zoomed(coordinate + vec2(0, 1));
+    double nru = get_iteration_zoomed(coordinate + vec2(1, 1));
+    float shade = slope_get_shade(nld, nd, nrd, nl, nr, nlu, nu, nru, ivec2(floor(coordinate)), 1 / scale);
+    return color_apply(palette_get_color(n).rgb * stripe_get_multiplier(n) * shade);
+}
+
+void main() {
+    ivec2 output_coord = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(gl_GlobalInvocationID.xy, iteration_info_settings.extent)))
+        return;
+
+    vec2 center = vec2(iteration_info_settings.extent) / 2.0;
+    float r = int(max(0, video_settings.current_frame)) - video_settings.current_frame;
+    float normal_scale = pow(video_settings.default_zoom_increment, r + 1);
+    float zoomed_scale = pow(video_settings.default_zoom_increment, r);
+    uint sample_count = clamp(sampling_settings.sample_count, 1u, MAX_STOCHASTIC_SAMPLES);
+    vec3 color_total = vec3(0.0);
+
+    for (uint sample_index = 0u; sample_index < sample_count; ++sample_index) {
+        vec2 jitter = sample_count > 1u ? stochastic_pixel_offset(output_coord, sample_index) : vec2(0.0);
+        vec2 relative_coord = vec2(output_coord) + vec2(0.5) + jitter - center;
+        vec2 normal_coord = relative_coord / normal_scale + center - vec2(0.5);
+        vec2 zoomed_coord = relative_coord / zoomed_scale + center - vec2(0.5);
+
+        vec3 sample_color = get_normal_final_color(normal_coord, normal_scale);
+        bool zoomed_valid = video_settings.current_frame >= 1 &&
+                            zoomed_coord.x >= 1.0 && zoomed_coord.y >= 1.0 &&
+                            zoomed_coord.x < float(iteration_info_settings.extent.x - 2) &&
+                            zoomed_coord.y < float(iteration_info_settings.extent.y - 2);
+        if (zoomed_valid) {
+            vec3 zoomed_color = get_zoomed_final_color(zoomed_coord, zoomed_scale);
+            sample_color = mix(sample_color, zoomed_color, r + 1.0);
+        }
+
+        color_total += sample_color;
+    }
+
+    imageStore(merged_image_output, output_coord, vec4(color_total / float(sample_count), 1.0));
+}

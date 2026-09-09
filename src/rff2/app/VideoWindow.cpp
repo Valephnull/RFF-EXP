@@ -10,8 +10,8 @@
 
 #include "../io/RFFDynamicMapBinary.h"
 #include "../io/RFFStaticMapBinary.h"
+#include "../util/Utilities.h"
 #include "IOUtilities.h"
-#include "Utilities.h"
 #include "opencv2/opencv.hpp"
 
 namespace merutilm::rff2 {
@@ -221,7 +221,7 @@ namespace merutilm::rff2 {
                 } else {
                     manager.setMap(&normalDynamic, &zoomedDynamic);
                     manager.applyCurrentDynamicMap(normalDynamic, zoomedDynamic, currentFrame);
-                    manager.setMaxIterationDynamic(static_cast<double>(normalDynamic.maxIteration));
+                    manager.setMaxIterationDynamic(static_cast<double>(currentFrame < 1 ? normalDynamic.maxIteration : std::min(normalDynamic.maxIteration, zoomedDynamic.maxIteration)));
                 }
             }
 

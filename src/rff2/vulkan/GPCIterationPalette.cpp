@@ -4,8 +4,9 @@
 
 #include "../vulkan/GPCIterationPalette.hpp"
 
-#include "../app/Utilities.h"
 #include "../settings/PerturbationMainIterator.hpp"
+#include "../settings/ShdPaletteSettings.h"
+#include "../util/Utilities.h"
 #include "GPCSmoothZoom.hpp"
 #include "desc/SharedDescriptorTemplate.hpp"
 #include "vulkan_helper/util/BufferImageContextUtils.hpp"
@@ -28,7 +29,13 @@ namespace merutilm::rff2 {
     }
 
     void GPCIterationPalette::pipelineInitialized() {
-        // noop
+        using namespace SharedDescriptorTemplate;
+        auto &timeDesc = getDescriptor(SET_TIME);
+        auto &iterDesc = getDescriptor(SET_ITERATION);
+        writeDescriptorMF([&timeDesc, &iterDesc](vkh::DescriptorUpdateQueue &queue, const uint32_t frameIndex) {
+            timeDesc.queue(queue, frameIndex, {}, {DescTime::BINDING_UBO_TIME});
+            iterDesc.queue(queue, frameIndex, {}, {DescIteration::BINDING_UBO_ITERATION_INFO});
+        });
     }
 
     void GPCIterationPalette::renderContextRefreshed() {

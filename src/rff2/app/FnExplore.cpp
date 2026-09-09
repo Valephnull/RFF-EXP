@@ -11,7 +11,7 @@
 #include <mutex>
 
 #include <cassert>
-#include "Utilities.h"
+#include "../util/Utilities.h"
 
 #include "../constants/Constants.hpp"
 #include "../mb/MB2Locator.h"
@@ -60,24 +60,25 @@ namespace merutilm::rff2 {
         ExploreSettings &explore = app.getSettings().explore;
         ImGui::Checkbox("Guided Zoom", &explore.autoMoveCursorToCenter);
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Aim inward zooms at Merutilm's detected center; nearby feature search is used as a fallback");
+            ImGui::SetTooltip(
+                    "Aim inward zooms at Merutilm's detected center; nearby feature search is used as a fallback");
         if (explore.autoMoveCursorToCenter) {
             ImGui::InputInt("Aim Radius (px)", &explore.autoAimRadiusPixels, 8, 32);
             explore.autoAimRadiusPixels = std::max(1, explore.autoAimRadiusPixels);
             if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Only redirect when the selected feature is within this many screen pixels of the cursor");
+                ImGui::SetTooltip(
+                        "Only redirect when the selected feature is within this many screen pixels of the cursor");
         }
     }
 
     void FnExplore::reuseReference(RFF2 &app) {
-        auto& frt = app.getSettings().fractal;
+        auto &frt = app.getSettings().fractal;
         ImGui::Checkbox("Reuse Reference", &frt.reference.reuse);
     }
 
     void FnExplore::locateMinibrot(RFF2 &app) {
         static bool showNewtonWindow = false;
-        if (ImGui::Checkbox("Newton-Raphson Zooming", &showNewtonWindow) && !showNewtonWindow &&
-            newtonRunning.load()) {
+        if (ImGui::Checkbox("Newton-Raphson Zooming", &showNewtonWindow) && !showNewtonWindow && newtonRunning.load()) {
             setNewtonStatus("Cancellation requested...");
             app.getState().interrupt();
         }
@@ -178,7 +179,7 @@ namespace merutilm::rff2 {
                             bool resultRenderRequested = false;
                             try {
                                 auto centerProgress = [&app, period, statusStartTime](const uint64_t p,
-                                                                                     const int pass) {
+                                                                                      const int pass) {
                                     static float lastUpdate = 0;
                                     const float now = app.getWindowContext().getWindow()->getTime();
                                     if (now - lastUpdate > Constants::Status::UI_REFRESH_INTERVAL) {
@@ -193,7 +194,7 @@ namespace merutilm::rff2 {
 
                                 if (runAction == 1) {
                                     std::unique_ptr<MB2RenderDataBase> centered = MB2Locator::locateMinibrotCenter(
-                                            app.getState(), *data, *cache, centerProgress,
+                                            app.engine->getCore(), app.getState(), *data, *cache, centerProgress,
                                             getActionWhileSeriesApprox(app, statusStartTime),
                                             getActionWhileCreatingTable(app, statusStartTime));
                                     if (!centered) {
@@ -207,7 +208,7 @@ namespace merutilm::rff2 {
                                     }
                                 } else {
                                     std::unique_ptr<MB2Locator> locator = MB2Locator::locateMinibrot(
-                                            app.getState(), *data, *cache, centerProgress,
+                                            app.engine->getCore(), app.getState(), *data, *cache, centerProgress,
                                             getActionWhileSeriesApprox(app, statusStartTime),
                                             getActionWhileCreatingTable(app, statusStartTime),
                                             [&app, statusStartTime](const float zoom) {
@@ -317,8 +318,8 @@ namespace merutilm::rff2 {
         ImGui::End();
     }
 
-    std::function<void(uint64_t, int)> FnExplore::getActionWhileFindingMBCenter(RFF2 &app,
-                                                                                const uint64_t longestPeriod, const float startTime) {
+    std::function<void(uint64_t, int)> FnExplore::getActionWhileFindingMBCenter(RFF2 &app, const uint64_t longestPeriod,
+                                                                                const float startTime) {
         return [&app, longestPeriod, startTime](const uint64_t p, int i) {
             static float time = app.rootWindowContext->getWindow()->getTime();
             const float elapsed = app.rootWindowContext->getWindow()->getTime() - time;
@@ -326,9 +327,9 @@ namespace merutilm::rff2 {
                 time = app.rootWindowContext->getWindow()->getTime();
                 app.setStatusMessage(Constants::Status::RENDER_STATUS,
                                      std::format("Location : {:.3f}%[{}]",
-                                     static_cast<float>(100 * p) / static_cast<float>(longestPeriod), i));
+                                                 static_cast<float>(100 * p) / static_cast<float>(longestPeriod), i));
                 app.setStatusMessage(Constants::Status::TIME_STATUS,
-                                 std::format("Time : {}", Utilities::formatTime(time - startTime)));
+                                     std::format("Time : {}", Utilities::formatTime(time - startTime)));
             }
         };
     }
@@ -340,9 +341,9 @@ namespace merutilm::rff2 {
             if (elapsed > Constants::Status::UI_REFRESH_INTERVAL) {
                 time = app.rootWindowContext->getWindow()->getTime();
                 app.setStatusMessage(Constants::Status::RENDER_STATUS,
-                std::format("Series-Approximation : {:.3f}%", i * 100, it));
+                                     std::format("Series-Approximation : {:.3f}%", i * 100, it));
                 app.setStatusMessage(Constants::Status::TIME_STATUS,
-                                 std::format("Time : {}", Utilities::formatTime(time - startTime)));
+                                     std::format("Time : {}", Utilities::formatTime(time - startTime)));
             }
         };
     }
@@ -350,7 +351,6 @@ namespace merutilm::rff2 {
 
     std::function<void(uint64_t, float)> FnExplore::getActionWhileCreatingTable(RFF2 &app, const float startTime) {
         return [&app, startTime](const uint64_t, const float i) {
-
             static float time = app.rootWindowContext->getWindow()->getTime();
             const float elapsed = app.rootWindowContext->getWindow()->getTime() - time;
             if (elapsed > Constants::Status::UI_REFRESH_INTERVAL) {
@@ -359,7 +359,7 @@ namespace merutilm::rff2 {
                                      std::format("MP-Approximation : {:.3f}%", i * 100));
 
                 app.setStatusMessage(Constants::Status::TIME_STATUS,
-                                 std::format("Time : {}", Utilities::formatTime(time - startTime)));
+                                     std::format("Time : {}", Utilities::formatTime(time - startTime)));
             }
         };
     }
@@ -372,7 +372,7 @@ namespace merutilm::rff2 {
             if (elapsed > Constants::Status::UI_REFRESH_INTERVAL) {
                 app.setStatusMessage(Constants::Status::RENDER_STATUS, std::format("Zoom : 10^{}", zoom));
                 app.setStatusMessage(Constants::Status::TIME_STATUS,
-                                 std::format("Time : {}", Utilities::formatTime(time - startTime)));
+                                     std::format("Time : {}", Utilities::formatTime(time - startTime)));
             }
         };
     }

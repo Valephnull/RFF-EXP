@@ -43,8 +43,11 @@ add_executable(
         src/rff2/preset/shader/stripe/ShdStripePresets.cpp
         src/rff2/preset/shader/bloom/ShdBloomPresets.cpp
         src/rff2/preset/resolution/ResolutionPresets.cpp
-        src/rff2/preset/render/RenderPresets.cpp
-        src/rff2/preset/calc/CalculationPresets.cpp
+        src/rff2/preset/render/compute/RndComputePresets.cpp
+        src/rff2/preset/render/display/RndDisplayPresets.cpp
+        src/rff2/preset/calc/sync/ClcSyncPresets.cpp
+        src/rff2/preset/calc/compress/ClcCompressPresets.cpp
+        src/rff2/preset/calc/approx/ClcApproxPresets.cpp
         src/rff2/app/FnVideo.cpp
         src/rff2/app/IOUtilities.cpp
         src/rff2/io/RFFStaticMapBinary.cpp
@@ -54,7 +57,6 @@ add_executable(
         extern/stb_image.c
         src/rff2/vulkan/GPCIterationPalette.cpp
         src/rff2/app/RFF2.cpp
-        src/rff2/vulkan/CPCIterate.cpp
         src/rff2/vulkan/GPCStripe.cpp
         src/rff2/vulkan/GPCSlope.cpp
         src/rff2/vulkan/GPCColor.cpp
@@ -67,7 +69,7 @@ add_executable(
         src/rff2/vulkan/GPCPresent.cpp
         src/rff2/app/VideoWindow.cpp
         src/rff2/app/VideoWindowRenderManager.cpp
-        src/rff2/vulkan/CPC2MapIterationStripe.cpp
+        src/rff2/vulkan/CPCCombine2Map.cpp
         src/rff2/vulkan/GPCStaticImage2Map.cpp
         src/rff2/vulkan/CPCImageRGBA2BGR.cpp
         src/rff2/app/FnPreset.cpp
@@ -205,7 +207,7 @@ FetchContent_MakeAvailable(nfd)
 
 target_link_libraries(RFF PRIVATE nfd libminiupnpc-static)
 
-RFF_DEFINITION(SAFE_DEX_OPERATOR "Better Quality, Slower Speed for Deep Zoom" OFF)
+RFF_DEFINITION(SAFE_EXP_OPERATOR "Better Quality, Slower Speed (Safety checking)" OFF)
 
 option(RFF_BUILD_TESTS "Build RFF-EXP render-pool tests" OFF)
 if (RFF_BUILD_TESTS)
