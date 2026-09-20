@@ -10,7 +10,11 @@ namespace merutilm::rff2 {
         static void saveMap(RFF2 &app);
         static void saveImage(RFF2 &app);
         static void saveLocation(RFF2 &app);
+        static void saveSettings(RFF2 &app);
+        static void saveShaderPreset(RFF2 &app);
         static void loadMap(RFF2 &app);
         static void loadLocation(RFF2 &app);
+        static void loadSettings(RFF2 &app);
+        static void loadShaderPreset(RFF2 &app);
     };
 }

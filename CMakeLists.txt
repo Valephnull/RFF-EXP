@@ -53,6 +53,7 @@ add_executable(
         src/rff2/io/RFFStaticMapBinary.cpp
         src/rff2/io/RFFBinary.cpp
         src/rff2/io/RFFLocationBinary.cpp
+        src/rff2/io/RFFSettingsIO.cpp
         src/rff2/io/KFRColorLoader.cpp
         extern/stb_image.c
         src/rff2/vulkan/GPCIterationPalette.cpp
@@ -241,6 +242,21 @@ if (RFF_BUILD_TESTS)
     target_compile_options(RFFDynamicMapValidationTest PRIVATE
             $<$<CONFIG:Release>:-O3 -ffast-math -fno-associative-math>)
     add_test(NAME dynamic_map_validation COMMAND RFFDynamicMapValidationTest)
+
+    add_executable(RFFSettingsIOTest
+            tests/RFFSettingsIOTest.cpp
+            src/rff2/io/RFFSettingsIO.cpp)
+    target_include_directories(RFFSettingsIOTest PRIVATE
+            ${CMAKE_SOURCE_DIR}/src
+            ${CMAKE_SOURCE_DIR}/include
+            ${CMAKE_SOURCE_DIR}/extern)
+    if (WIN32)
+        target_link_libraries(RFFSettingsIOTest PRIVATE ${CLANG64_LIBS}/libgmp.a)
+    else()
+        target_link_libraries(RFFSettingsIOTest PRIVATE ${GMP_STATIC})
+    endif()
+    add_test(NAME settings_io_round_trip COMMAND RFFSettingsIOTest)
+
     if (WIN32)
         set_tests_properties(render_pool_network PROPERTIES
                 ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${CLANG64_DIRS}/bin")

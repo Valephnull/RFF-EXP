@@ -915,8 +915,10 @@ namespace merutilm::rff2 {
                 FnFile::saveMap(*this);
                 FnFile::saveImage(*this);
                 FnFile::saveLocation(*this);
+                FnFile::saveSettings(*this);
                 FnFile::loadMap(*this);
                 FnFile::loadLocation(*this);
+                FnFile::loadSettings(*this);
                 ImGui::EndDisabled();
                 ImGui::EndTabItem();
             }
@@ -950,6 +952,9 @@ namespace merutilm::rff2 {
             }
             if (ImGui::BeginTabItem("Shader")) {
                 ImGui::BeginDisabled(controlsLocked);
+                FnFile::saveShaderPreset(*this);
+                FnFile::loadShaderPreset(*this);
+                ImGui::Separator();
                 FnShader::palette(*this);
                 FnShader::stripe(*this);
                 FnShader::slope(*this);

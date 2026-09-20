@@ -6,8 +6,10 @@
 
 #include "../app/RFF2.hpp"
 #include "../constants/Constants.hpp"
+#include "../io/RFFSettingsIO.h"
 #include "IOUtilities.h"
 #include "imgui.h"
+#include "vulkan_helper/base/logger.hpp"
 
 namespace merutilm::rff2 {
 
@@ -37,6 +39,27 @@ namespace merutilm::rff2 {
             app.saveCurrentLocation(*path);
         }
     }
+
+    void FnFile::saveSettings(RFF2 &app) {
+        if (!ImGui::Button("Save Settings", ImVec2(-FLT_MIN, 0)))
+            return;
+        const auto path = IOUtilities::ioFileDialog(Constants::File::DESC_CONFIG, IOUtilities::SAVE_FILE,
+                                                     Constants::File::EXT_CONFIG);
+        if (!path)
+            return;
+        const VkExtent2D extent = app.getWindowContext().getSwapchain().getSwapchainExtent();
+        if (!RFFSettingsIO::saveConfig(*path, app.getSettings(), extent.width, extent.height))
+            vkh::logger::log_err("Failed to save settings");
+    }
+
+    void FnFile::saveShaderPreset(RFF2 &app) {
+        if (!ImGui::Button("Save Shader Preset", ImVec2(-FLT_MIN, 0)))
+            return;
+        const auto path = IOUtilities::ioFileDialog(Constants::File::DESC_SHADER_PRESET, IOUtilities::SAVE_FILE,
+                                                     Constants::File::EXT_SHADER_PRESET);
+        if (path && !RFFSettingsIO::saveShaderPreset(*path, app.getSettings().shader))
+            vkh::logger::log_err("Failed to save shader preset");
+    }
     void FnFile::loadMap(RFF2 &app) {
 
         if (ImGui::Button("Load Map", ImVec2(-FLT_MIN, 0))) {
@@ -60,5 +83,46 @@ namespace merutilm::rff2 {
             }
             app.loadLocation(*path);
         }
+    }
+
+    void FnFile::loadSettings(RFF2 &app) {
+        if (!ImGui::Button("Load Settings", ImVec2(-FLT_MIN, 0)))
+            return;
+        const auto path = IOUtilities::ioFileDialog(Constants::File::DESC_CONFIG, IOUtilities::OPEN_FILE,
+                                                     Constants::File::EXT_CONFIG);
+        if (!path)
+            return;
+
+        Settings loaded = app.getSettings();
+        uint32_t width = 0;
+        uint32_t height = 0;
+        if (!RFFSettingsIO::loadConfig(*path, loaded, &width, &height)) {
+            vkh::logger::log_err("Failed to load settings");
+            return;
+        }
+
+        // A reused reference belongs to the old in-memory location and cannot travel
+        // with a settings file. Always calculate a matching reference after loading.
+        loaded.fractal.reference.reuse = false;
+        app.getSettings() = std::move(loaded);
+        app.getWindowContext().getWindow()->initializerSettings.framerate = app.getSettings().render.display.fps;
+        app.getWindowContext().getWindow()->setResolution(static_cast<int>(width), static_cast<int>(height));
+        app.getRequests().requestShader();
+        app.getRequests().requestResize({width, height});
+        app.getRequests().requestRecompute();
+    }
+
+    void FnFile::loadShaderPreset(RFF2 &app) {
+        if (!ImGui::Button("Load Shader Preset", ImVec2(-FLT_MIN, 0)))
+            return;
+        const auto path = IOUtilities::ioFileDialog(Constants::File::DESC_SHADER_PRESET, IOUtilities::OPEN_FILE,
+                                                     Constants::File::EXT_SHADER_PRESET);
+        if (!path)
+            return;
+        if (!RFFSettingsIO::loadShaderPreset(*path, app.getSettings().shader)) {
+            vkh::logger::log_err("Failed to load shader preset");
+            return;
+        }
+        app.getRequests().requestShader();
     }
 } // namespace merutilm::rff2
