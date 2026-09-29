@@ -6,12 +6,23 @@
 
 #include "../app/RFF2.hpp"
 #include "../constants/Constants.hpp"
+#include "../io/RFFBinary.hpp"
 #include "../io/RFFSettingsIO.h"
+#include "../util/Utilities.h"
 #include "IOUtilities.h"
 #include "imgui.h"
 #include "vulkan_helper/base/logger.hpp"
 
 namespace merutilm::rff2 {
+
+    void FnFile::saveShader(RFF2 &app) {
+        if (ImGui::Button("Save Shader", ImVec2(-FLT_MIN, 0))) {
+            const auto path = IOUtilities::ioFileDialog(Constants::File::DESC_SHADER, IOUtilities::SAVE_FILE,
+                                                        Constants::File::EXT_SHADER);
+            if (path)
+                app.saveCurrentShader(*path);
+        }
+    }
 
     void FnFile::saveMap(RFF2 &app) {
         if (ImGui::Button("Save Map", ImVec2(-FLT_MIN, 0))) {
@@ -20,7 +31,7 @@ namespace merutilm::rff2 {
             if (path == nullptr) {
                 return;
             }
-            app.generateMap().exportFile(*path);
+            RFFBinary::exportFile(app.generateMap(), *path);
         }
     }
     void FnFile::saveImage(RFF2 &app) {
@@ -68,7 +79,7 @@ namespace merutilm::rff2 {
             if (path == nullptr) {
                 return;
             }
-            app.overwriteMatrixFromMap(RFFDynamicMapBinary::read(*path));
+            app.overwriteMatrixFromMap(RFFBinary::importFile<RFFDynamicMapBinary>(*path));
         }
     }
 
@@ -124,5 +135,19 @@ namespace merutilm::rff2 {
             return;
         }
         app.getRequests().requestShader();
+    }
+
+    void FnFile::loadShader(RFF2 &app) {
+        if (ImGui::Button("Load Shader", ImVec2(-FLT_MIN, 0))) {
+            const auto path = IOUtilities::ioFileDialog(Constants::File::DESC_SHADER, IOUtilities::OPEN_FILE,
+                                                        Constants::File::EXT_SHADER);
+            if (path)
+                app.loadShader(*path);
+        }
+    }
+
+    void FnFile::autoSaveBackup(RFF2 &app) {
+        ImGui::Checkbox("Auto Save Backup", &app.getSettings().file.autoSaveBackup);
+        Utilities::imguiHelpMarker("Automatically saves the backup for each calculation");
     }
 } // namespace merutilm::rff2

@@ -11,7 +11,7 @@
 #include <stop_token>
 #include <thread>
 
-#include "../io/RFFDynamicMapBinary.h"
+#include "../io/RFFDynamicMapBinary.hpp"
 #include "../mb/MB2Perturbator.h"
 #include "../mb/MB2RenderData.hpp"
 #include "../parallel/BackgroundThreads.h"
@@ -129,11 +129,18 @@ namespace merutilm::rff2 {
 
         static Settings genDefaultSettings();
 
-        [[nodiscard]] complex<dex> offsetConversion(const Settings &s, int px, int py) const;
-        [[nodiscard]] std::array<int, 2> iterationBufferConversion(const Settings &s, const complex<dex> &offset) const;
+        [[nodiscard]] complex<dex> offsetConversion(double logZoom, float clarityMultiplier, int px, int py) const;
+
+        [[nodiscard]] std::array<int, 2> iterationBufferConversion(double logZoom, float clarityMultiplier,
+                                                                   const complex<dex> &offset) const;
+
+        [[nodiscard]] dex getDcMax(const double logZoom, const float clarityMultiplier) const {
+            return offsetConversion(logZoom, clarityMultiplier, 0, 0).norm_approx();
+        }
+
         void moveCursor(int px, int py) const;
 
-        [[nodiscard]] static dex getDivisor(const Settings &settings);
+        [[nodiscard]] static dex getDivisor(double logZoom);
 
         [[nodiscard]] uint16_t calcIterationBufferWidth(const Settings &s) const;
 
@@ -141,10 +148,9 @@ namespace merutilm::rff2 {
         [[nodiscard]] uint16_t getIterationBufferWidth() const;
         [[nodiscard]] uint16_t getIterationBufferHeight() const;
 
-
         void addListeners() override;
 
-        void zoom(int16_t px, int16_t py, float logIncrement, bool requestRender = true);
+        void zoom(int16_t px, int16_t py, double logIncrement, bool requestRender = true);
 
         void applyDefaultSettings();
 
@@ -162,11 +168,15 @@ namespace merutilm::rff2 {
 
         void overwriteMatrixFromMap(const RFFDynamicMapBinary &map) const;
 
-        [[nodiscard]] static std::filesystem::path getBackupLocationPath();
+        [[nodiscard]] static std::filesystem::path getBackupPath(const char *ext);
 
         void saveBackup() const;
 
         void saveCurrentLocation(const std::filesystem::path &path) const;
+
+        void saveCurrentShader(const std::filesystem::path &path) const;
+
+        void loadShader(const std::filesystem::path &path);
 
         void loadLocation(const std::filesystem::path &path);
 
@@ -179,20 +189,20 @@ namespace merutilm::rff2 {
 
         void moveCursorToCenter() const;
 
-        void beforeIterationFill(Settings &s) const;
+        void beforeIterationFill(const Settings &s) const;
 
         static void matchSettingsBeforeCreatingRenderData(Settings &s);
 
         void matchSettingsAfterCreatingRenderData(Settings &s) const;
 
-        bool prepareRenderData(float startTime, Settings &s);
+        bool prepareRenderData(double startTime, const Settings &s);
 
 
         template<Number Num, Number Other>
-        void fillIterationComputeShader(float startTime, const Settings &s);
+        void fillIterationComputeShader(double startTime, const Settings &s);
 
-        void fillIterationMultithreaded(float startTime, const Settings &s);
-        bool fillIteration(float startTime, const Settings &s);
+        void fillIterationMultithreaded(double startTime, const Settings &s);
+        bool fillIteration(double startTime, const Settings &s);
 
         void afterComputeFinally(bool success);
 
@@ -305,14 +315,21 @@ namespace merutilm::rff2 {
         void onQuit();
         void resolveRequests();
 
-        std::unique_ptr<MB2RenderDataBase>
-        createAppropriateRenderData(bool computeShader, float logZoomTest, float startTime, const FractalSettings &frt,
-                                    dex dcMax, int exp10, uint64_t refInitialCapacity, uint64_t forcedStrictFPGPeriod);
+        std::unique_ptr<MB2RenderDataBase> createAppropriateRenderData(bool computeShader, double logZoomTest,
+                                                                       double startTime, const FractalSettings &frt,
+                                                                       dex dcMax, int64_t exp10,
+                                                                       uint64_t refInitialCapacity);
 
 
         VideoKeyframeProgressInfo &getKeyframeProgressInfo() { return videoKeyframeProgressInfo; }
 
         VideoProgressInfo &getVideoProgressInfo() { return videoProgressInfo; }
+
+
+        auto getFnFindingMBCenter(double startTime);
+        auto getFnSeriesApprox(double startTime);
+        auto getFnCreatingTable(double startTime);
+        auto getFnRefCalc(double startTime);
 
     protected:
         void renderImGui() override;
@@ -335,7 +352,7 @@ namespace merutilm::rff2 {
 
 
     template<Number Num, Number Other>
-    void RFF2::fillIterationComputeShader(const float startTime, const Settings &s) {
+    void RFF2::fillIterationComputeShader(const double startTime, const Settings &s) {
         setStatusMessage(Constants::Status::RENDER_STATUS, "Preparing Render Meta...");
 
         const uint32_t width = getIterationBufferWidth();
@@ -353,7 +370,7 @@ namespace merutilm::rff2 {
 
         const auto cache = dynamic_cast<ApproxTableCache<Num> *>(approxTableCache.get());
         if (!cache)
-            throw std::logic_error("cache is null");
+            throw vkh::exception_invalid_state("cache is null");
 
         const auto &tableData = cache->mpaTable;
         const auto &mapperData = cache->flattenIndexMapper;
@@ -446,7 +463,7 @@ namespace merutilm::rff2 {
             const auto elapsed = std::chrono::duration_cast<std::chrono::duration<float>>(
                     std::chrono::high_resolution_clock::now() - actualTime);
 
-            const float time = rootWindowContext->getWindow()->getTime();
+            const double time = rootWindowContext->getWindow()->getTime();
             setStatusMessage(Constants::Status::TIME_STATUS,
                              std::format("Time : {}", Utilities::formatTime(time - startTime)));
             setStatusMessage(Constants::Status::RENDER_STATUS,
@@ -540,5 +557,56 @@ namespace merutilm::rff2 {
             }
             requests.requestShader();
         }
+    }
+    inline auto RFF2::getFnFindingMBCenter(double startTime) {
+        return [this, startTime](int64_t exp10, const uint32_t partition, const uint32_t partitionCount) {
+            static double time = rootWindowContext->getWindow()->getTime();
+            const double elapsed = rootWindowContext->getWindow()->getTime() - time;
+            if (elapsed > Constants::Status::UI_REFRESH_INTERVAL) {
+                time = rootWindowContext->getWindow()->getTime();
+                setStatusMessage(Constants::Status::RENDER_STATUS,
+                                 std::format("Locating : e{} [{}/{}]", exp10, partition, partitionCount));
+                setStatusMessage(Constants::Status::TIME_STATUS,
+                                 std::format("Time : {}", Utilities::formatTime(time - startTime)));
+            }
+        };
+    }
+    inline auto RFF2::getFnSeriesApprox(double startTime) {
+        return [this, startTime](const uint64_t it, const float i) {
+            static double time = rootWindowContext->getWindow()->getTime();
+            const double elapsed = rootWindowContext->getWindow()->getTime() - time;
+            if (elapsed > Constants::Status::UI_REFRESH_INTERVAL) {
+                time = rootWindowContext->getWindow()->getTime();
+                setStatusMessage(Constants::Status::RENDER_STATUS,
+                                 std::format("Series-Approximation : {:.3f}%", i * 100, it));
+                setStatusMessage(Constants::Status::TIME_STATUS,
+                                 std::format("Time : {}", Utilities::formatTime(time - startTime)));
+            }
+        };
+    }
+    inline auto RFF2::getFnCreatingTable(double startTime) {
+        return [this, startTime](const uint64_t, const float i) {
+            static double time = rootWindowContext->getWindow()->getTime();
+            const double elapsed = rootWindowContext->getWindow()->getTime() - time;
+            if (elapsed > Constants::Status::UI_REFRESH_INTERVAL) {
+                time = rootWindowContext->getWindow()->getTime();
+                setStatusMessage(Constants::Status::RENDER_STATUS, std::format("MP-Approximation : {:.3f}%", i * 100));
+
+                setStatusMessage(Constants::Status::TIME_STATUS,
+                                 std::format("Time : {}", Utilities::formatTime(time - startTime)));
+            }
+        };
+    }
+    inline auto RFF2::getFnRefCalc(double startTime) {
+        return [this, startTime](const uint64_t p) {
+            static double time = rootWindowContext->getWindow()->getTime();
+            const double elapsed = rootWindowContext->getWindow()->getTime() - time;
+            if (elapsed > Constants::Status::UI_REFRESH_INTERVAL) {
+                time = rootWindowContext->getWindow()->getTime();
+                setStatusMessage(Constants::Status::RENDER_STATUS, std::format(std::locale(), "Period : {:L}", p));
+                setStatusMessage(Constants::Status::TIME_STATUS,
+                                 std::format("Time : {}", Utilities::formatTime(time - startTime)));
+            }
+        };
     }
 } // namespace merutilm::rff2

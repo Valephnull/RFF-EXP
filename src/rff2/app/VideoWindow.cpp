@@ -8,8 +8,8 @@
 #include <string>
 #include <vector>
 
-#include "../io/RFFDynamicMapBinary.h"
-#include "../io/RFFStaticMapBinary.h"
+#include "../io/RFFDynamicMapBinary.hpp"
+#include "../io/RFFStaticMapBinary.hpp"
 #include "../util/Utilities.h"
 #include "IOUtilities.h"
 #include "opencv2/opencv.hpp"
@@ -82,8 +82,8 @@ namespace merutilm::rff2 {
 
     void VideoWindow::createVideo(RFF2 &app, const std::filesystem::path &open,
                                   const std::filesystem::path &save, const Settings &settingsClone) {
-        int imgWidth = 0;
-        int imgHeight = 0;
+        uint32_t imgWidth = 0;
+        uint32_t imgHeight = 0;
         uint32_t dynamicFrameCount = 0;
 
         const bool isWindow = app.rootWindowContext->getWindow()->getWindow();
@@ -107,8 +107,8 @@ namespace merutilm::rff2 {
                 return;
             }
 
-            imgWidth = static_cast<int>(targetMap.getWidth());
-            imgHeight = static_cast<int>(targetMap.getHeight());
+            imgWidth = targetMap.width;
+            imgHeight = targetMap.height;
         } else {
             const RFFDynamicMapBinary targetMap = RFFDynamicMapBinary::readByID(open, 1);
             if (!targetMap.hasData()) {
@@ -127,10 +127,10 @@ namespace merutilm::rff2 {
         }
 
 
-        const auto cw = static_cast<uint32_t>(std::min(imgWidth, 1280));
+        const auto cw = static_cast<uint32_t>(std::min(imgWidth, 1280u));
         const auto ch = cw * imgHeight / imgWidth;
         auto window = VideoWindow(app, static_cast<int>(cw), static_cast<int>(ch));
-        window.initScene(VkExtent2D{static_cast<uint32_t>(imgWidth), static_cast<uint32_t>(imgHeight)}, settingsClone);
+        window.initScene(VkExtent2D{imgWidth, imgHeight}, settingsClone);
         auto &manager = *window.scene;
         GLFWwindow *handle = manager.getWindowContext().getWindow()->getWindow();
 
@@ -141,7 +141,7 @@ namespace merutilm::rff2 {
 
         cv::VideoWriter writer;
         writer.open(save.string(), cv::CAP_FFMPEG, cv::VideoWriter::fourcc('a', 'v', 'c', '1'), fps,
-                    cv::Size(imgWidth, imgHeight));
+                    cv::Size(static_cast<int>(imgWidth), static_cast<int>(imgHeight)));
 
         if (!writer.isOpened()) {
             vkh::logger::log_err("Cannot open file!!");
@@ -158,11 +158,11 @@ namespace merutilm::rff2 {
             maxNumber = dynamicFrameCount;
         }
 
-        const float minNumber = -overZoom;
-        auto currentFrame = static_cast<float>(maxNumber);
-        float currentSec = 0;
+        const double minNumber = -overZoom;
+        double currentFrame = maxNumber;
+        double currentSec = 0;
         uint32_t pf1 = UINT32_MAX;
-        const float startSec = std::chrono::duration_cast<std::chrono::duration<float>>(
+        const double startSec = std::chrono::duration_cast<std::chrono::duration<double>>(
                                        std::chrono::high_resolution_clock::now().time_since_epoch())
                                        .count();
 
@@ -170,8 +170,8 @@ namespace merutilm::rff2 {
         RFFDynamicMapBinary normalDynamic = RFFDynamicMapBinary::DEFAULT;
         RFFStaticMapBinary zoomedStatic = RFFStaticMapBinary::DEFAULT;
         RFFStaticMapBinary normalStatic = RFFStaticMapBinary::DEFAULT;
-        cv::Mat zoomedStaticImage = cv::Mat::zeros(imgHeight, imgWidth, CV_16UC4);
-        cv::Mat normalStaticImage = cv::Mat::zeros(imgHeight, imgWidth, CV_16UC4);
+        cv::Mat zoomedStaticImage = cv::Mat::zeros(static_cast<int>(imgHeight), static_cast<int>(imgWidth), CV_16UC4);
+        cv::Mat normalStaticImage = cv::Mat::zeros(static_cast<int>(imgHeight), static_cast<int>(imgWidth), CV_16UC4);
 
         manager.setStatic(isStatic);
 
@@ -187,7 +187,7 @@ namespace merutilm::rff2 {
                     if (isStatic) {
                         zoomedStatic = RFFStaticMapBinary::DEFAULT;
                         normalStatic = RFFStaticMapBinary::readByID(open, 1);
-                        zoomedStaticImage = cv::Mat::zeros(imgHeight, imgWidth, CV_16UC4);
+                        zoomedStaticImage = cv::Mat::zeros(static_cast<int>(imgHeight), static_cast<int>(imgWidth), CV_16UC4);
                         normalStaticImage = RFFStaticMapBinary::loadImageByID(open, 1);
                     } else {
                         zoomedDynamic = RFFDynamicMapBinary::DEFAULT;
@@ -233,19 +233,19 @@ namespace merutilm::rff2 {
             manager.setTime(currentSec);
             manager.renderOnce();
             VideoBufferCache buffer = manager.createImage();
-            writer << generateFrame(buffer, imgWidth, showText);
+            writer << generateFrame(buffer, static_cast<int>(imgWidth), showText);
 
-            const float progressRatio =
-                    (static_cast<float>(maxNumber) - currentFrame) / (static_cast<float>(maxNumber) + overZoom);
-            const float spentSec = std::chrono::duration_cast<std::chrono::duration<float>>(
+            const double progressRatio =
+                    (static_cast<double>(maxNumber) - currentFrame) / (static_cast<double>(maxNumber) + overZoom);
+            const double spentSec = std::chrono::duration_cast<std::chrono::duration<double>>(
                                            std::chrono::high_resolution_clock::now().time_since_epoch())
                                            .count() -
                                    startSec;
-            const auto remainedSec = static_cast<uint32_t>((1 - progressRatio) / progressRatio * spentSec);
+            const auto remainedSec = static_cast<uint64_t>((1 - progressRatio) / progressRatio * spentSec);
 
             std::scoped_lock lock(mutex);
             ratio = progressRatio;
-            remainedTimeStr = std::format("Processing... {:.2f}% [{}]", std::clamp(progressRatio, 0.0f, 1.0f) * 100,
+            remainedTimeStr = std::format("Processing... {:.2f}% [{}]", std::clamp(progressRatio, 0.0, 1.0) * 100,
                                               Utilities::formatTime(remainedSec));
         }
 
@@ -271,7 +271,7 @@ namespace merutilm::rff2 {
             const int tkn = std::max(1, off / 2);
 
             const std::string zoomStr = std::format("Zoom : {:6f}E{:d}", std::pow(10, std::fmod(buffer.logZoom, 1)),
-                                                    static_cast<int>(buffer.logZoom));
+                                                    static_cast<int64_t>(buffer.logZoom));
             cv::putText(img, zoomStr, cv::Point(xg + off, loc + yg + off), cv::FONT_HERSHEY_PLAIN, size,
                         cv::Scalar(0, 0, 0));
             cv::putText(img, zoomStr, cv::Point(xg, loc + yg), cv::FONT_HERSHEY_PLAIN, size, cv::Scalar(255, 255, 255),

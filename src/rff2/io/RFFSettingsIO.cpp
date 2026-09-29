@@ -99,6 +99,11 @@ namespace merutilm::rff2 {
             return (std::bit_cast<uint32_t>(value) & EXPONENT) != EXPONENT;
         }
 
+        [[nodiscard]] bool finite(const double value) {
+            constexpr uint64_t EXPONENT = uint64_t{0x7ff} << 52;
+            return (std::bit_cast<uint64_t>(value) & EXPONENT) != EXPONENT;
+        }
+
         [[nodiscard]] bool finiteVec4(const glm::vec4 &value) {
             return finite(value.x) && finite(value.y) && finite(value.z) && finite(value.w);
         }
@@ -259,8 +264,9 @@ namespace merutilm::rff2 {
             writer.value(fractal.reference.sync.referenceSynchronizationRadiusPower);
             writer.value(fractal.reference.compression.compressCriteria);
             writer.value(fractal.reference.compression.compressionThresholdPower);
-            writer.value(fractal.reference.periodMultiplier);
             writer.boolean(fractal.reference.reuse);
+            writer.boolean(fractal.reference.useFixedPrecision);
+            writer.value(fractal.reference.fixedPrecisionNeg);
 
             writer.boolean(fractal.sa.use);
             writer.value(fractal.sa.appliedTermsCount);
@@ -309,9 +315,12 @@ namespace merutilm::rff2 {
 
             writer.boolean(settings.explore.autoMoveCursorToCenter);
             writer.value(settings.explore.autoAimRadiusPixels);
+            writer.boolean(settings.explore.locator.burst);
+            writer.boolean(settings.file.autoSaveBackup);
         }
 
-        bool readConfigPayload(Reader &reader, Settings &settings, uint32_t &width, uint32_t &height) {
+        bool readConfigPayload(Reader &reader, Settings &settings, uint32_t &width, uint32_t &height,
+                               const uint32_t version) {
             std::string real;
             std::string imag;
             if (!reader.text(real) || !reader.text(imag))
@@ -324,8 +333,16 @@ namespace merutilm::rff2 {
                 !reader.value(fractal.reference.sync.referenceSynchronizationInterval) ||
                 !reader.value(fractal.reference.sync.referenceSynchronizationRadiusPower) ||
                 !reader.value(fractal.reference.compression.compressCriteria) ||
-                !reader.value(fractal.reference.compression.compressionThresholdPower) ||
-                !reader.value(fractal.reference.periodMultiplier) || !reader.boolean(fractal.reference.reuse) ||
+                !reader.value(fractal.reference.compression.compressionThresholdPower))
+                return false;
+            if (version == 1) {
+                uint32_t obsoletePeriodMultiplier = 0;
+                if (!reader.value(obsoletePeriodMultiplier))
+                    return false;
+            }
+            if (!reader.boolean(fractal.reference.reuse) ||
+                (version >= 2 && (!reader.boolean(fractal.reference.useFixedPrecision) ||
+                                  !reader.value(fractal.reference.fixedPrecisionNeg))) ||
                 !reader.boolean(fractal.sa.use) || !reader.value(fractal.sa.appliedTermsCount) ||
                 !reader.value(fractal.sa.validatedTermsCount) || !reader.value(fractal.sa.epsilonPower) ||
                 !reader.value(fractal.mpa.minSkipReference) ||
@@ -357,11 +374,13 @@ namespace merutilm::rff2 {
                 !reader.value(video.animation.mps) || !reader.value(video.exportation.fps) ||
                 !reader.value(video.exportation.bitrate) ||
                 !reader.boolean(settings.explore.autoMoveCursorToCenter) ||
-                !reader.value(settings.explore.autoAimRadiusPixels))
+                !reader.value(settings.explore.autoAimRadiusPixels) ||
+                (version >= 2 && (!reader.boolean(settings.explore.locator.burst) ||
+                                  !reader.boolean(settings.file.autoSaveBackup))))
                 return false;
 
-            const auto allFinite = [](const std::initializer_list<float> values) {
-                return std::ranges::all_of(values, [](const float value) { return finite(value); });
+            const auto allFinite = [](const std::initializer_list<double> values) {
+                return std::ranges::all_of(values, [](const double value) { return finite(value); });
             };
             if (!allFinite({fractal.general.bailout, fractal.general.logZoom, fractal.sa.epsilonPower,
                             fractal.mpa.epsilonPower, display.clarityMultiplier, display.fps,
@@ -385,7 +404,7 @@ namespace merutilm::rff2 {
                 return false;
 
             try {
-                fractal.reference.center = fixed_point_complex_i1(
+                fractal.reference.center = fixed_point_complex(
                         real, imag, Perturbator::logZoomToExp10(fractal.general.logZoom));
             } catch (...) {
                 return false;
@@ -393,10 +412,10 @@ namespace merutilm::rff2 {
             return true;
         }
 
-        bool readHeader(Reader &reader, const uint32_t expectedMagic) {
+        bool readHeader(Reader &reader, const uint32_t expectedMagic, uint32_t &version) {
             uint32_t magic = 0;
-            uint32_t version = 0;
-            return reader.value(magic) && reader.value(version) && magic == expectedMagic && version == RFFSettingsIO::VERSION;
+            return reader.value(magic) && reader.value(version) && magic == expectedMagic && version >= 1 &&
+                   version <= RFFSettingsIO::VERSION;
         }
     } // namespace
 
@@ -414,12 +433,13 @@ namespace merutilm::rff2 {
     bool RFFSettingsIO::loadConfig(const std::filesystem::path &path, Settings &settings,
                                    uint32_t *width, uint32_t *height) {
         Reader reader(path);
-        if (!reader.good() || !readHeader(reader, CONFIG_MAGIC))
+        uint32_t version = 0;
+        if (!reader.good() || !readHeader(reader, CONFIG_MAGIC, version))
             return false;
         Settings candidate = settings;
         uint32_t candidateWidth = 0;
         uint32_t candidateHeight = 0;
-        if (!readConfigPayload(reader, candidate, candidateWidth, candidateHeight))
+        if (!readConfigPayload(reader, candidate, candidateWidth, candidateHeight, version))
             return false;
         settings = std::move(candidate);
         if (width)
@@ -441,7 +461,8 @@ namespace merutilm::rff2 {
 
     bool RFFSettingsIO::loadShaderPreset(const std::filesystem::path &path, ShaderSettings &shader) {
         Reader reader(path);
-        if (!reader.good() || !readHeader(reader, SHADER_MAGIC))
+        uint32_t version = 0;
+        if (!reader.good() || !readHeader(reader, SHADER_MAGIC, version))
             return false;
         ShaderSettings candidate = shader;
         if (!readShader(reader, candidate))

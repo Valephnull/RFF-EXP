@@ -7,6 +7,7 @@
 namespace merutilm::rff2 {
     class RFF2;
     struct FnFile {
+        static void saveShader(RFF2 &app);
         static void saveMap(RFF2 &app);
         static void saveImage(RFF2 &app);
         static void saveLocation(RFF2 &app);
@@ -16,5 +17,7 @@ namespace merutilm::rff2 {
         static void loadLocation(RFF2 &app);
         static void loadSettings(RFF2 &app);
         static void loadShaderPreset(RFF2 &app);
+        static void loadShader(RFF2 &app);
+        static void autoSaveBackup(RFF2 &app);
     };
 }

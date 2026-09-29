@@ -5,7 +5,7 @@
 #include <optional>
 #include <string>
 
-#include "../io/RFFLocationBinary.h"
+#include "../io/RFFLocationBinary.hpp"
 
 namespace merutilm::rff2 {
     class RFF2;

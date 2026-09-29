@@ -5,8 +5,8 @@
 #include "FnVideo.hpp"
 
 #include "../constants/Constants.hpp"
-#include "../io/RFFLocationBinary.h"
-#include "../io/RFFStaticMapBinary.h"
+#include "../io/RFFLocationBinary.hpp"
+#include "../io/RFFStaticMapBinary.hpp"
 #include "../preset/shader/bloom/ShdBloomPresets.hpp"
 #include "../preset/shader/fog/ShdFogPresets.hpp"
 #include "../preset/shader/slope/ShdSlopePresets.hpp"
@@ -29,8 +29,8 @@ namespace merutilm::rff2 {
         if (ImGui::TreeNode("Data Settings")) {
             auto &[defaultZoomIncrement, isStatic] = app.getSettings().video.data;
 
-            if (ImGui::InputFloat("Default Zoom Increment", &defaultZoomIncrement)) {
-                defaultZoomIncrement = std::clamp(defaultZoomIncrement, 1.25f, 8.f);
+            if (ImGui::InputDouble("Default Zoom Increment", &defaultZoomIncrement)) {
+                defaultZoomIncrement = std::clamp(defaultZoomIncrement, 1.25, 8.0);
             }
 
             Utilities::imguiHelpMarker("Set the log-Zoom interval between two adjacent video keyframes.");
@@ -124,7 +124,7 @@ namespace merutilm::rff2 {
 
                 app.getBackgroundThreads().createThread([&app, dirPtr = std::move(dirPtr)](BackgroundThread &thread) {
                     auto &state = app.getState();
-                    float &logZoom = app.getSettings().fractal.general.logZoom;
+                    double &logZoom = app.getSettings().fractal.general.logZoom;
 
                     if (!app.getWindowContext().getWindow()->canRenderNow()) {
                         vkh::logger::log_err("Window is currently minimized or inactive");
@@ -144,7 +144,7 @@ namespace merutilm::rff2 {
                         app.getRequests().requestShader();
                         thread.waitUntil([&app] { return !app.getRequests().shaderRequested; });
                     }
-                    const float increment = std::log10(videoSettings.data.defaultZoomIncrement);
+                    const double increment = std::log10(videoSettings.data.defaultZoomIncrement);
 
                     app.getKeyframeProgressInfo().keyframeGenerating = true;
 
@@ -154,7 +154,7 @@ namespace merutilm::rff2 {
                             // incomplete frame
                             app.getRequests().requestRecompute();
                         }
-                        thread.waitUntil([&app, &state] {
+                        thread.waitUntil([&app] {
                             const ComputeState cs = app.getRequests().recomputeRequestedState;
 
                             return cs == ComputeState::IDLE || cs == ComputeState::CANCELLED ||
@@ -187,9 +187,9 @@ namespace merutilm::rff2 {
                         }
 
                         auto &center = settings.fractal.reference.center;
-                        RFFLocationBinary(settings.fractal.general.logZoom, center.real.to_string(),
-                                          center.imag.to_string(), settings.fractal.perturb.maxIteration)
-                                .exportFile(IOUtilities::generateFilename(dir, Constants::File::EXT_LOCATION, nullptr)
+
+                        RFFBinary::exportFile(RFFLocationBinary(settings.fractal.general.logZoom, center.real.to_string(),
+                                          center.imag.to_string(), settings.fractal.perturb.maxIteration), IOUtilities::generateFilename(dir, Constants::File::EXT_LOCATION, nullptr)
                                                     .string());
                         logZoom -= increment;
                         nextFrame = true;
@@ -233,7 +233,7 @@ namespace merutilm::rff2 {
         auto &[mutex, ratio, remainedTimeStr] = app.getVideoProgressInfo();
         if (ratio > 0) {
             std::scoped_lock lock(mutex);
-            ImGui::ProgressBar(ratio);
+            ImGui::ProgressBar(static_cast<float>(ratio));
             ImGui::Text("%s", remainedTimeStr.data());
         }
     }

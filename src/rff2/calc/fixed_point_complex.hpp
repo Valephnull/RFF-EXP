@@ -5,11 +5,10 @@
 #pragma once
 #include <array>
 
-#include "fixed_point_complex.hpp"
-#include "fixed_point_decimal.hpp"
-#include "spin_thread_pool.hpp"
 #include <sstream>
 #include <utility>
+#include "fixed_point_decimal.hpp"
+#include "spin_thread_pool.hpp"
 
 #include "complex.hpp"
 
@@ -23,22 +22,29 @@ namespace merutilm::rff2 {
             spin_thread_pool<fixed_point_complex *, const fixed_point_complex *, const fixed_point_complex *>;
 
 
+    using op_thread_pool_s = spin_thread_pool<fixed_point_complex *, const fixed_point_complex *, const uint64_t *>;
+
+
     struct fixed_point_complex {
-        static constexpr int TEMPS_COUNT = 6;
+        static constexpr uint64_t TEMPS_COUNT = 6;
         fixed_point_decimal real;
         fixed_point_decimal imag;
-        std::array<fixed_point_decimal, TEMPS_COUNT> temps;
 
-        explicit fixed_point_complex(const std::string &re_str, const std::string &im_str, int dec_exp10,
-                                     int int_exp10);
+        fixed_point_complex() : fixed_point_complex(0.0, 0.0, -1) {}
 
-        explicit fixed_point_complex(double re, double im, int dec_exp10, int int_exp10);
+        explicit fixed_point_complex(const std::string &re_str, const std::string &im_str, int64_t exp10);
+
+        explicit fixed_point_complex(double re, double im, int64_t exp10);
 
         template<Number Exp, Number Mantissa, Number Bit>
-        explicit fixed_point_complex(exponent<Exp, Mantissa, Bit> re, exponent<Exp, Mantissa, Bit> im, int dec_exp10, int int_exp10);
+        explicit fixed_point_complex(exponent<Exp, Mantissa, Bit> re, exponent<Exp, Mantissa, Bit> im, int64_t exp10);
 
-        explicit fixed_point_complex(fixed_point_decimal re, fixed_point_decimal im, int dec_exp10,
-                                     int int_exp10);
+        template<Number Num>
+        explicit fixed_point_complex(complex<Num> c, int64_t exp10);
+
+        explicit fixed_point_complex(fixed_point_decimal re, fixed_point_decimal im, int64_t exp10);
+
+        void add_one();
 
         /**
          * Fast-addition. It assumes that the count of limbs of both numbers are the same.
@@ -50,7 +56,7 @@ namespace merutilm::rff2 {
         static void add(fixed_point_complex &result, const fixed_point_complex &lhs, const fixed_point_complex &rhs);
 
         /**
-         * Fast-subtraction. It assumes that the count of limbs of both numbers are the same.
+         * Fast-subtraction. It assumes that the exp2div64 of both numbers are the same.
          * in-place operation is supported.
          * @param result the pointer of result
          * @param lhs left operand
@@ -59,57 +65,64 @@ namespace merutilm::rff2 {
         static void sub(fixed_point_complex &result, const fixed_point_complex &lhs, const fixed_point_complex &rhs);
 
         /**
-         * Fast-multiplication. It assumes that the count of limbs of both numbers are the same.
+         * Fast-multiplication. It assumes that the exp2div64 of both numbers are the same.
          * in-place operation is supported. (but in-place multiplication of each decimal is not supported)
          * @param result the pointer of result
          * @param lhs left operand
          * @param rhs right operand
+         * @param temps temp
          * @param tp multithread pool, default is nullptr
          */
-        static void mul(fixed_point_complex &result, const fixed_point_complex &lhs, const fixed_point_complex &rhs,
+        static void mul(fixed_point_complex &result, const fixed_point_complex &lhs, const fixed_point_complex &rhs, std::array<fixed_point_decimal, TEMPS_COUNT> &temps,
                         op_thread_pool *tp = nullptr);
 
+        static void mul(fixed_point_complex &result, const fixed_point_complex &lhs, uint64_t rhs,
+                        op_thread_pool_s *tp_s = nullptr);
+
         /**
-         * Fast-division. It assumes that the count of limbs of both numbers are the same.
+         * Fast-division. It assumes that the exp2div64 of both numbers are the same.
          * in-place operation is supported.
          * @param result the pointer of result
          * @param lhs left operand
          * @param rhs right operand
+         * @param temps temp
          * @param tp multithread pool, default is nullptr
          */
-        static void div(fixed_point_complex &result, const fixed_point_complex &lhs, const fixed_point_complex &rhs,
+        static void div(fixed_point_complex &result, const fixed_point_complex &lhs, const fixed_point_complex &rhs, std::array<fixed_point_decimal, TEMPS_COUNT> &temps,
                         op_thread_pool *tp = nullptr);
 
         /**
-         * Fast-square. It assumes that the count of limbs of both numbers are the same.
+         * Fast-square. It assumes that the exp2div64 of both numbers are the same.
          * in-place operation is supported. (but in-place square of each decimal is not supported)
          * @param result the pointer of result
          * @param v operand
+         * @param temps temp
          * @param tp multithread pool, default is nullptr
          */
-        static void sqr(fixed_point_complex &result, const fixed_point_complex &v, op_thread_pool *tp = nullptr);
+        static void sqr(fixed_point_complex &result, const fixed_point_complex &v, std::array<fixed_point_decimal, TEMPS_COUNT> &temps, op_thread_pool *tp = nullptr);
         /**
-         * Fast-doubling. It assumes that the count of limbs of both numbers are the same.
+         * Fast-doubling. It assumes that the exp2div64 of both numbers are the same.
          * in-place operation is supported.
          * @param result
          * @param v operand
          */
         static void dbl(fixed_point_complex &result, const fixed_point_complex &v);
         /**
-         * Fast-halving. It assumes that the count of limbs of both numbers are the same.
+         * Fast-halving. It assumes that the exp2div64 of both numbers are the same.
          * in-place operation is supported.
          * @param result
          * @param v operand
          */
         static void hlv(fixed_point_complex &result, const fixed_point_complex &v);
 
+        void one();
 
-        static void neg(fixed_point_complex &v);
+        void zero();
 
-        static void make_operation_compatible(fixed_point_complex &result, const fixed_point_complex &v);
+        void neg();
 
         template<Number Num>
-        explicit operator complex<Num>() {
+        explicit operator complex<Num>() const {
             return {static_cast<Num>(real), static_cast<Num>(imag)};
         }
 
@@ -121,49 +134,47 @@ namespace merutilm::rff2 {
 
         [[nodiscard]] fixed_point_decimal clone_imag() const;
 
-        [[nodiscard]] fixed_point_complex create_variant(int dec_exp10, int int_exp10) const;
+        [[nodiscard]] fixed_point_complex create_variant(int64_t exp10) const;
+        void try_realloc_inc(uint64_t new_limbs_alloc);
 
-        void set_exp10(int dec_exp10, int int_exp10);
+        void set_exp10(int64_t exp10);
 
-        [[nodiscard]] bool is_strict_zero() const;
+        [[nodiscard]] bool is_zero() const;
 
-        std::string to_string();
+        [[nodiscard]] std::string to_string() const;
+
+        [[nodiscard]] static std::array<fixed_point_decimal, TEMPS_COUNT> create_temps(int64_t exp10);
     };
 
 
     inline fixed_point_complex::fixed_point_complex(const std::string &re_str, const std::string &im_str,
-                                                    const int dec_exp10, const int int_exp10) :
-        real(re_str, dec_exp10, int_exp10), imag(im_str, dec_exp10, int_exp10) {
-        for (auto &temp: temps) {
-            temp.set_exp10(dec_exp10, int_exp10);
-        }
+                                                    const int64_t exp10) :
+        real(re_str, exp10), imag(im_str, exp10) {
     }
 
-    inline fixed_point_complex::fixed_point_complex(const double re, const double im, const int dec_exp10,
-                                                    const int int_exp10) :
-        real(re, dec_exp10, int_exp10), imag(im, dec_exp10, int_exp10) {
-        for (auto &temp: temps) {
-            temp.set_exp10(dec_exp10, int_exp10);
-        }
+    inline fixed_point_complex::fixed_point_complex(const double re, const double im, const int64_t exp10) :
+        real(re, exp10), imag(im, exp10) {
     }
 
     template<Number Exp, Number Mantissa, Number Bit>
-    inline fixed_point_complex::fixed_point_complex(const exponent<Exp, Mantissa, Bit> re, const exponent<Exp, Mantissa, Bit> im, const int dec_exp10,
-                                                    const int int_exp10) :
-        real(re, dec_exp10, int_exp10), imag(im, dec_exp10, int_exp10) {
-        for (auto &temp: temps) {
-            temp.set_exp10(dec_exp10, int_exp10);
-        }
+    fixed_point_complex::fixed_point_complex(const exponent<Exp, Mantissa, Bit> re,
+                                             const exponent<Exp, Mantissa, Bit> im, const int64_t exp10) :
+        real(re, exp10), imag(im, exp10) {
+    }
+
+    template<Number Num>
+    fixed_point_complex::fixed_point_complex(const complex<Num> c, const int64_t exp10) :
+        real(c.re, exp10), imag(c.im, exp10) {
     }
 
     inline fixed_point_complex::fixed_point_complex(fixed_point_decimal re, fixed_point_decimal im,
-                                                    const int dec_exp10, const int int_exp10) : real(std::move(re)), imag(std::move(im)) {
-        set_exp10(dec_exp10, int_exp10);
-        for (auto &temp: temps) {
-            temp.set_exp10(dec_exp10, int_exp10);
-        }
+                                                    const int64_t exp10) : real(std::move(re)), imag(std::move(im)) {
+        set_exp10(exp10);
     }
 
+    inline void fixed_point_complex::add_one() {
+        real.add_one();
+    }
 
     inline void fixed_point_complex::add(fixed_point_complex &result, const fixed_point_complex &lhs,
                                          const fixed_point_complex &rhs) {
@@ -178,34 +189,50 @@ namespace merutilm::rff2 {
         fixed_point_decimal::sub(result.imag, lhs.imag, rhs.imag);
     }
 
+    inline void fixed_point_complex::mul(fixed_point_complex &result, const fixed_point_complex &lhs,
+                                         const uint64_t rhs, op_thread_pool_s *tp_s) {
+
+
+        if (tp_s) {
+            if (tp_s->is_empty()) {
+                tp_s->add_func([](fixed_point_complex *res, const fixed_point_complex *l, const uint64_t *r) {
+                    fixed_point_decimal::mul(res->real, l->real, *r);
+                });
+                tp_s->add_func([](fixed_point_complex *res, const fixed_point_complex *l, const uint64_t *r) {
+                    fixed_point_decimal::mul(res->imag, l->imag, *r);
+                });
+            }
+
+
+            tp_s->run_all(&result, &lhs, &rhs);
+            tp_s->wait_all();
+
+        } else {
+            fixed_point_decimal::mul(result.real, lhs.real, rhs);
+            fixed_point_decimal::mul(result.imag, lhs.imag, rhs);
+        }
+    }
 
     inline void fixed_point_complex::mul(fixed_point_complex &result, const fixed_point_complex &lhs,
-                                         const fixed_point_complex &rhs, op_thread_pool *tp) {
+                                         const fixed_point_complex &rhs, std::array<fixed_point_decimal, TEMPS_COUNT> &temps, op_thread_pool *tp) {
         //(a+bi)*(c+di)
         // REAL : ac-bd
         // IMAG : ad+bc
 
-        fixed_point_decimal::make_operation_compatible(result.temps[0], lhs.real);
-        fixed_point_decimal::make_operation_compatible(result.temps[1], rhs.real);
-        fixed_point_decimal::make_operation_compatible(result.temps[2], lhs.real);
-        fixed_point_decimal::make_operation_compatible(result.temps[3], lhs.real);
-        fixed_point_decimal::make_operation_compatible(result.temps[4], lhs.real);
-
         if (tp) {
             if (tp->is_empty()) {
-                tp->add_func([](fixed_point_complex *res, const fixed_point_complex *l, const fixed_point_complex *r) {
-                    fixed_point_decimal::sub(res->temps[0], l->real, l->imag);
-                    fixed_point_decimal::add(res->temps[1], r->real, r->imag);
-                    fixed_point_decimal::mul(res->temps[2], res->temps[0], res->temps[1]);
+                tp->add_func([&temps](fixed_point_complex *, const fixed_point_complex *l, const fixed_point_complex *r) {
+                    fixed_point_decimal::sub(temps[0], l->real, l->imag);
+                    fixed_point_decimal::add(temps[1], r->real, r->imag);
+                    fixed_point_decimal::mul(temps[2], temps[0], temps[1]);
                 });
-                tp->add_func([](fixed_point_complex *res, const fixed_point_complex *l, const fixed_point_complex *r) {
-                    fixed_point_decimal::mul(res->temps[3], l->real, r->imag);
+                tp->add_func([&temps](fixed_point_complex *,const fixed_point_complex *l, const fixed_point_complex *r) {
+                    fixed_point_decimal::mul(temps[3], l->real, r->imag);
                 });
-                tp->add_func([](fixed_point_complex *res, const fixed_point_complex *l, const fixed_point_complex *r) {
-                    fixed_point_decimal::mul(res->temps[4], l->imag, r->real);
+                tp->add_func([&temps](fixed_point_complex *, const fixed_point_complex *l, const fixed_point_complex *r) {
+                    fixed_point_decimal::mul(temps[4], l->imag, r->real);
                 });
             }
-
 
 
             tp->run_all(&result, &lhs, &rhs);
@@ -213,21 +240,21 @@ namespace merutilm::rff2 {
 
         } else {
 
-            fixed_point_decimal::sub(result.temps[0], lhs.real, lhs.imag);
-            fixed_point_decimal::add(result.temps[1], rhs.real, rhs.imag);
-            fixed_point_decimal::mul(result.temps[2], result.temps[0], result.temps[1]);
-            fixed_point_decimal::mul(result.temps[3], lhs.real, rhs.imag);
-            fixed_point_decimal::mul(result.temps[4], lhs.imag, rhs.real);
+            fixed_point_decimal::sub(temps[0], lhs.real, lhs.imag);
+            fixed_point_decimal::add(temps[1], rhs.real, rhs.imag);
+            fixed_point_decimal::mul(temps[2], temps[0], temps[1]);
+            fixed_point_decimal::mul(temps[3], lhs.real, rhs.imag);
+            fixed_point_decimal::mul(temps[4], lhs.imag, rhs.real);
         }
 
-        fixed_point_decimal::sub(result.real, result.temps[2], result.temps[3]);
-        fixed_point_decimal::add(result.real, result.real, result.temps[4]);
-        fixed_point_decimal::add(result.imag, result.temps[3], result.temps[4]);
+        fixed_point_decimal::sub(result.real, temps[2], temps[3]);
+        fixed_point_decimal::add(result.real, result.real, temps[4]);
+        fixed_point_decimal::add(result.imag, temps[3], temps[4]);
     }
 
 
     inline void fixed_point_complex::div(fixed_point_complex &result, const fixed_point_complex &lhs,
-                                         const fixed_point_complex &rhs, op_thread_pool *tp) {
+                                         const fixed_point_complex &rhs, std::array<fixed_point_decimal, TEMPS_COUNT> &temps, op_thread_pool *tp) {
         // (a + bi) / (c + di)
         // REAL : (ac+bd) / (c^2+d^2)
         // IMAG : (bc-ad) / (c^2+d^2)
@@ -240,36 +267,36 @@ namespace merutilm::rff2 {
             if (tp->is_empty()) {
 
                 // 1ST
-                tp->add_func([](fixed_point_complex *res, const fixed_point_complex *, const fixed_point_complex *r) {
-                    fixed_point_decimal::sqr(res->temps[0], r->real);
+                tp->add_func([&temps](fixed_point_complex *, const fixed_point_complex *, const fixed_point_complex *r) {
+                    fixed_point_decimal::sqr(temps[0], r->real);
                 });
-                tp->add_func([](fixed_point_complex *res, const fixed_point_complex *, const fixed_point_complex *r) {
-                    fixed_point_decimal::sqr(res->temps[1], r->imag);
+                tp->add_func([&temps](fixed_point_complex *, const fixed_point_complex *, const fixed_point_complex *r) {
+                    fixed_point_decimal::sqr(temps[1], r->imag);
                 });
 
                 // 2ND
-                tp->add_func([](fixed_point_complex *res, const fixed_point_complex *l, const fixed_point_complex *r) {
-                    fixed_point_decimal::add(res->temps[0], res->temps[0], res->temps[1]);
-                    fixed_point_decimal::add(res->temps[1], l->real, l->imag);
-                    fixed_point_decimal::add(res->temps[2], r->real, r->imag);
-                    fixed_point_decimal::mul(res->temps[3], res->temps[1], res->temps[2]);
+                tp->add_func([&temps](fixed_point_complex *, const fixed_point_complex *l, const fixed_point_complex *r) {
+                    fixed_point_decimal::add(temps[0], temps[0], temps[1]);
+                    fixed_point_decimal::add(temps[1], l->real, l->imag);
+                    fixed_point_decimal::add(temps[2], r->real, r->imag);
+                    fixed_point_decimal::mul(temps[3], temps[1], temps[2]);
                 });
-                tp->add_func([](fixed_point_complex *res, const fixed_point_complex *l, const fixed_point_complex *r) {
-                    fixed_point_decimal::mul(res->temps[4], l->real, r->imag);
+                tp->add_func([&temps](fixed_point_complex *, const fixed_point_complex *l, const fixed_point_complex *r) {
+                    fixed_point_decimal::mul(temps[4], l->real, r->imag);
                 });
-                tp->add_func([](fixed_point_complex *res, const fixed_point_complex *l, const fixed_point_complex *r) {
-                    fixed_point_decimal::mul(res->temps[5], l->imag, r->real);
+                tp->add_func([&temps](fixed_point_complex *, const fixed_point_complex *l, const fixed_point_complex *r) {
+                    fixed_point_decimal::mul(temps[5], l->imag, r->real);
                 });
 
                 // 3RD
-                tp->add_func([](fixed_point_complex *res, const fixed_point_complex *, const fixed_point_complex *) {
-                    fixed_point_decimal::sub(res->temps[3], res->temps[3], res->temps[4]);
-                    fixed_point_decimal::sub(res->temps[3], res->temps[3], res->temps[5]);
-                    fixed_point_decimal::div(res->real, res->temps[3], res->temps[0]);
+                tp->add_func([&temps](fixed_point_complex *res, const fixed_point_complex *, const fixed_point_complex *) {
+                    fixed_point_decimal::sub(temps[3], temps[3], temps[4]);
+                    fixed_point_decimal::sub(temps[3], temps[3], temps[5]);
+                    fixed_point_decimal::div(res->real, temps[3], temps[0]);
                 });
-                tp->add_func([](fixed_point_complex *res, const fixed_point_complex *, const fixed_point_complex *) {
-                    fixed_point_decimal::sub(res->temps[1], res->temps[5], res->temps[4]);
-                    fixed_point_decimal::div(res->imag, res->temps[1], res->temps[0]);
+                tp->add_func([&temps](fixed_point_complex *res, const fixed_point_complex *, const fixed_point_complex *) {
+                    fixed_point_decimal::sub(temps[1], temps[5], temps[4]);
+                    fixed_point_decimal::div(res->imag, temps[1], temps[0]);
                 });
             }
 
@@ -281,62 +308,58 @@ namespace merutilm::rff2 {
             tp->wait_all();
 
         } else {
-            fixed_point_decimal::sqr(result.temps[0], rhs.real);
-            fixed_point_decimal::sqr(result.temps[1], rhs.imag);
-            fixed_point_decimal::add(result.temps[0], result.temps[0], result.temps[1]);
+            fixed_point_decimal::sqr(temps[0], rhs.real);
+            fixed_point_decimal::sqr(temps[1], rhs.imag);
+            fixed_point_decimal::add(temps[0], temps[0], temps[1]);
 
-            fixed_point_decimal::add(result.temps[1], lhs.real, lhs.imag);
-            fixed_point_decimal::add(result.temps[2], rhs.real, rhs.imag);
-            fixed_point_decimal::mul(result.temps[3], result.temps[1], result.temps[2]);
+            fixed_point_decimal::add(temps[1], lhs.real, lhs.imag);
+            fixed_point_decimal::add(temps[2], rhs.real, rhs.imag);
+            fixed_point_decimal::mul(temps[3], temps[1], temps[2]);
 
 
-            fixed_point_decimal::mul(result.temps[4], lhs.real, rhs.imag);
-            fixed_point_decimal::mul(result.temps[5], lhs.imag, rhs.real);
+            fixed_point_decimal::mul(temps[4], lhs.real, rhs.imag);
+            fixed_point_decimal::mul(temps[5], lhs.imag, rhs.real);
 
-            fixed_point_decimal::sub(result.temps[3], result.temps[3], result.temps[4]);
-            fixed_point_decimal::sub(result.temps[3], result.temps[3], result.temps[5]);
+            fixed_point_decimal::sub(temps[3], temps[3], temps[4]);
+            fixed_point_decimal::sub(temps[3], temps[3], temps[5]);
 
-            fixed_point_decimal::sub(result.temps[4], result.temps[5], result.temps[4]);
+            fixed_point_decimal::sub(temps[4], temps[5], temps[4]);
 
-            fixed_point_decimal::div(result.real, result.temps[3], result.temps[0]);
-            fixed_point_decimal::div(result.imag, result.temps[4], result.temps[0]);
+            fixed_point_decimal::div(result.real, temps[3], temps[0]);
+            fixed_point_decimal::div(result.imag, temps[4], temps[0]);
         }
     }
 
 
     inline void fixed_point_complex::sqr(fixed_point_complex &result, const fixed_point_complex &v,
-                                         op_thread_pool *tp) {
+                                         std::array<fixed_point_decimal, TEMPS_COUNT> &temps, op_thread_pool *tp) {
         //(a+bi)^2
         // REAL : a^2-b^2 = (a+b)(a-b)
         // IMAG : 2ab
-        fixed_point_decimal::make_operation_compatible(result.temps[0], v.real);
-        fixed_point_decimal::make_operation_compatible(result.temps[1], v.real);
-        fixed_point_decimal::make_operation_compatible(result.temps[2], v.real);
 
         if (tp) {
 
             if (tp->is_empty()) {
-                tp->add_func([](fixed_point_complex *res, const fixed_point_complex *, const fixed_point_complex *) {
-                    fixed_point_decimal::mul(res->temps[3], res->temps[0], res->temps[1]);
+                tp->add_func([&temps](fixed_point_complex *, const fixed_point_complex *, const fixed_point_complex *) {
+                    fixed_point_decimal::mul(temps[3], temps[0], temps[1]);
                 });
-                tp->add_func([](fixed_point_complex *res, const fixed_point_complex *v2, const fixed_point_complex *) {
-                    fixed_point_decimal::mul(res->temps[2], v2->real, v2->imag);
+                tp->add_func([&temps](fixed_point_complex *, const fixed_point_complex *v2, const fixed_point_complex *) {
+                    fixed_point_decimal::mul(temps[2], v2->real, v2->imag);
                 });
             }
 
-            fixed_point_decimal::make_operation_compatible(result.temps[3], v.real);
-            fixed_point_decimal::add(result.temps[0], v.real, v.imag);
-            fixed_point_decimal::sub(result.temps[1], v.real, v.imag);
+            fixed_point_decimal::add(temps[0], v.real, v.imag);
+            fixed_point_decimal::sub(temps[1], v.real, v.imag);
             tp->run_all(&result, &v, nullptr);
             tp->wait_all();
-            std::swap(result.real, result.temps[3]);
-            fixed_point_decimal::dbl(result.imag, result.temps[2]);
+            std::swap(result.real, temps[3]);
+            fixed_point_decimal::dbl(result.imag, temps[2]);
         } else {
-            fixed_point_decimal::add(result.temps[0], v.real, v.imag);
-            fixed_point_decimal::sub(result.temps[1], v.real, v.imag);
-            fixed_point_decimal::mul(result.temps[2], v.real, v.imag);
-            fixed_point_decimal::mul(result.real, result.temps[0], result.temps[1]);
-            fixed_point_decimal::dbl(result.imag, result.temps[2]);
+            fixed_point_decimal::add(temps[0], v.real, v.imag);
+            fixed_point_decimal::sub(temps[1], v.real, v.imag);
+            fixed_point_decimal::mul(temps[2], v.real, v.imag);
+            fixed_point_decimal::mul(result.real, temps[0], temps[1]);
+            fixed_point_decimal::dbl(result.imag, temps[2]);
         }
     }
 
@@ -351,14 +374,19 @@ namespace merutilm::rff2 {
         fixed_point_decimal::hlv(result.imag, v.imag);
     }
 
-    inline void fixed_point_complex::neg(fixed_point_complex &v) {
-        fixed_point_decimal::neg(v.real);
-        fixed_point_decimal::neg(v.imag);
+    inline void fixed_point_complex::one() {
+        real.one();
+        imag.zero();
     }
 
-    inline void fixed_point_complex::make_operation_compatible(fixed_point_complex &result, const fixed_point_complex &v) {
-        fixed_point_decimal::make_operation_compatible(result.real, v.real);
-        fixed_point_decimal::make_operation_compatible(result.imag, v.imag);
+    inline void fixed_point_complex::zero() {
+        real.zero();
+        imag.zero();
+    }
+
+    inline void fixed_point_complex::neg() {
+        real.neg();
+        imag.neg();
     }
 
     inline fixed_point_decimal &fixed_point_complex::get_real() { return real; }
@@ -372,37 +400,36 @@ namespace merutilm::rff2 {
 
     inline fixed_point_decimal fixed_point_complex::clone_imag() const { return imag; }
 
-    inline fixed_point_complex fixed_point_complex::create_variant(const int dec_exp10, const int int_exp10) const {
-        return fixed_point_complex(real, imag, dec_exp10, int_exp10);
+    inline fixed_point_complex fixed_point_complex::create_variant(const int64_t exp10) const {
+        return fixed_point_complex(real, imag, exp10);
+    }
+
+    inline void fixed_point_complex::try_realloc_inc(const uint64_t new_limbs_alloc) {
+        real.try_realloc_inc(new_limbs_alloc);
+        imag.try_realloc_inc(new_limbs_alloc);
     }
 
 
-    inline void fixed_point_complex::set_exp10(const int dec_exp10, const int int_exp10) {
-        real.set_exp10(dec_exp10, int_exp10);
-        imag.set_exp10(dec_exp10, int_exp10);
-
-        for (auto &temp: temps) {
-            temp.set_exp10(dec_exp10, int_exp10);
-        }
+    inline void fixed_point_complex::set_exp10(const int64_t exp10) {
+        real.set_exp10(exp10);
+        imag.set_exp10(exp10);
     }
-    inline bool fixed_point_complex::is_strict_zero() const {
-        return real.is_strict_zero() && imag.is_strict_zero();
-    }
+    inline bool fixed_point_complex::is_zero() const { return real.size == 0 && imag.size == 0; }
 
 
-    inline std::string fixed_point_complex::to_string() {
-        if (real.sgn == 0 && imag.sgn == 0)
+    inline std::string fixed_point_complex::to_string() const {
+        if (is_zero())
             return "0";
 
         const std::string re = real.to_string();
         const std::string im = imag.to_string();
         std::ostringstream oss;
 
-        if (real.sgn != 0) {
+        if (real.size != 0) {
             oss << re;
         }
-        if (imag.sgn != 0) {
-            if (real.sgn != 0 && imag.sgn == 1)
+        if (imag.size != 0) {
+            if (real.size != 0 && imag.size > 0)
                 oss << "+";
             oss << im;
             oss << "i";
@@ -411,33 +438,12 @@ namespace merutilm::rff2 {
         return oss.str();
     }
 
-    template<int int_exp10>
-    struct fixed_point_complex_i_locked : fixed_point_complex {
-        explicit fixed_point_complex_i_locked(const std::string &re_str, const std::string &im_str,
-                                              const int dec_exp10) :
-            fixed_point_complex(re_str, im_str, dec_exp10, int_exp10) {}
-        explicit fixed_point_complex_i_locked(const double re, const double im, const int dec_exp10) :
-            fixed_point_complex(re, im, dec_exp10, int_exp10) {}
-
-        explicit fixed_point_complex_i_locked(const dex re, const dex im,
-                                                      const int dec_exp10) :
-                    fixed_point_complex(re, im, dec_exp10, int_exp10) {}
-
-
-        explicit fixed_point_complex_i_locked(const fixed_point_decimal &re, const fixed_point_decimal &im,
-                                              const int dec_exp10) :
-            fixed_point_complex(re, im, dec_exp10, int_exp10) {}
-
-        using fixed_point_complex::create_variant;
-        fixed_point_complex_i_locked create_variant(const int dec_exp10) const {
-            return fixed_point_complex_i_locked(real, imag, dec_exp10);
+    inline std::array<fixed_point_decimal, fixed_point_complex::TEMPS_COUNT> fixed_point_complex::create_temps(const int64_t exp10) {
+        std::array<fixed_point_decimal, TEMPS_COUNT> result;
+        for (fixed_point_decimal &temp : result) {
+            temp.set_exp10(exp10);
         }
+        return result;
+    }
 
-        using fixed_point_complex::set_exp10;
-        void set_exp10(const int dec_exp10) {
-            fixed_point_complex::set_exp10(dec_exp10, int_exp10);
-        }
-    };
-
-    using fixed_point_complex_i1 = fixed_point_complex_i_locked<1>;
 } // namespace merutilm::rff2

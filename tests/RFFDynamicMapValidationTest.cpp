@@ -6,7 +6,7 @@
 #include <string_view>
 #include <vector>
 
-#include "rff2/io/RFFDynamicMapBinary.h"
+#include "rff2/io/RFFDynamicMapBinary.hpp"
 #include "rff2/app/IOUtilities.h"
 
 using namespace merutilm::rff2;

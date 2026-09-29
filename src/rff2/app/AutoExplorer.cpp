@@ -11,7 +11,7 @@
 namespace merutilm::rff2 {
     void AutoExplorer::start(RFF2 &app) {
         config.zoomIncrement = std::clamp(config.zoomIncrement, 0.01f, 1000.0f);
-        config.stopLogZoom = std::max(config.stopLogZoom, app.getSettings().fractal.general.logZoom);
+        config.stopLogZoom = std::max<double>(config.stopLogZoom, app.getSettings().fractal.general.logZoom);
         config.minimumContrast = std::max(config.minimumContrast, 0.0f);
         config.candidateSamples = std::clamp(config.candidateSamples, 64, 1'000'000);
         config.edgeMarginPercent = std::clamp(config.edgeMarginPercent, 0, 45);
@@ -138,19 +138,21 @@ namespace merutilm::rff2 {
         }
 
         Settings &settings = app.getSettings();
-        const float remaining = config.stopLogZoom - settings.fractal.general.logZoom;
-        const float increment = std::min(config.zoomIncrement, remaining);
+        const double remaining = config.stopLogZoom - settings.fractal.general.logZoom;
+        const double increment = std::min<double>(config.zoomIncrement, remaining);
         if (!(increment > 0)) {
             status = "Target depth reached";
             return false;
         }
 
-        const complex<dex> offset = app.offsetConversion(settings, candidate.x, candidate.y);
+        const complex<dex> offset = app.offsetConversion(settings.fractal.general.logZoom,
+                                                         settings.render.display.clarityMultiplier,
+                                                         candidate.x, candidate.y);
         const dex centerFraction = dex(1.0 - std::pow(10.0, -increment));
         const int newExp10 = Perturbator::logZoomToExp10(settings.fractal.general.logZoom + increment);
-        fixed_point_complex_i1 center = settings.fractal.reference.center.create_variant(newExp10);
-        const fixed_point_complex_i1 delta(offset.re * centerFraction, offset.im * centerFraction, newExp10);
-        fixed_point_complex_i1::add(center, center, delta);
+        fixed_point_complex center = settings.fractal.reference.center.create_variant(newExp10);
+        const fixed_point_complex delta(offset.re * centerFraction, offset.im * centerFraction, newExp10);
+        fixed_point_complex::add(center, center, delta);
 
         settings.fractal.reference.center = center;
         settings.fractal.general.logZoom += increment;
@@ -170,8 +172,9 @@ namespace merutilm::rff2 {
 
     bool AutoExplorer::recover(RFF2 &app, const Candidate &failedCandidate, const std::string_view reason) {
         Settings &settings = app.getSettings();
-        const float currentZoom = settings.fractal.general.logZoom;
-        const float recoveredZoom = std::max(Constants::Fractal::ZOOM_MIN, currentZoom - config.recoveryZoomOut);
+        const double currentZoom = settings.fractal.general.logZoom;
+        const double recoveredZoom = std::max(Constants::Fractal::ZOOM_MIN,
+                                              currentZoom - config.recoveryZoomOut);
         if (!(recoveredZoom < currentZoom)) {
             status = std::format("Stuck at minimum zoom: {}", reason);
             return false;

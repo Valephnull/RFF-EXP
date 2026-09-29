@@ -25,10 +25,10 @@ namespace merutilm::rff2 {
 
         static std::string real = frt.reference.center.real.to_string();
         static std::string imag= frt.reference.center.imag.to_string();
-        static float logZoom = frt.general.logZoom;
+        static double logZoom = frt.general.logZoom;
         static std::string realCache = real;
         static std::string imagCache = imag;
-        static float logZoomCache = logZoom;
+        static double logZoomCache = logZoom;
         static bool locationChanged = false;
 
         if (ImGui::TreeNode("Reference")) {
@@ -69,7 +69,7 @@ namespace merutilm::rff2 {
             Utilities::imguiHelpMarker("Sets the imaginary part of center.");
 
 
-            if (ImGui::InputFloat("Log Zoom", &logZoomCache)) {
+            if (ImGui::InputDouble("Log Zoom", &logZoomCache)) {
                 logZoom = std::max(logZoomCache, Constants::Fractal::ZOOM_MIN);
                 locationChanged = true;
             }
@@ -85,15 +85,19 @@ namespace merutilm::rff2 {
                 locationChanged = false;
             }
             if (ImGui::Button("Apply Location Changes", ImVec2(-FLT_MIN, 0))) {
-                const int exp10 = Perturbator::logZoomToExp10(logZoom);
+                const int64_t exp10 = Perturbator::getExp10(frt.reference, logZoom);
                 if (locationChanged) {
-                    frt.reference.center = fixed_point_complex_i1(real, imag, exp10);
+                    frt.reference.center = fixed_point_complex(real, imag, exp10);
                     frt.general.logZoom = logZoom;
                     app.getRequests().requestRecompute();
+                    locationChanged = false;
                 }
             }
             ImGui::Checkbox("Reuse Reference", &frt.reference.reuse);
             Utilities::imguiHelpMarker("Sets the reuse reference method.");
+
+            ImGui::Checkbox("Use Fixed Precision", &frt.reference.useFixedPrecision);
+            if (frt.reference.useFixedPrecision) ImGui::InputScalar("Fixed Precision", ImGuiDataType_S64, &frt.reference.fixedPrecisionNeg);
 
             ImGui::InputScalar("Reference Compression Criteria", ImGuiDataType_U32,
                                &frt.reference.compression.compressCriteria);
@@ -111,13 +115,6 @@ namespace merutilm::rff2 {
                     "equal.\n"
                     "Reference compression slows down the calculation but frees up memory space.\n"
                     "set 0 to disable.");
-            if (ImGui::InputScalar("FPG Period Multiplier", ImGuiDataType_U32, &frt.reference.periodMultiplier)) {
-                frt.reference.periodMultiplier = std::max(frt.reference.periodMultiplier, 1u);
-            }
-            Utilities::imguiHelpMarker(
-                    "Some Complex swirl patterns, the orbit perturbation may cause some trouble.\n"
-                    "you can set the period multiplier manually.");
-
 
             if (ImGui::InputScalar("Reference Synchronization Interval", ImGuiDataType_U32,
                                &frt.reference.sync.referenceSynchronizationInterval)) {

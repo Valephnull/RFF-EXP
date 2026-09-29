@@ -11,7 +11,7 @@ namespace merutilm::rff2 {
     struct RFFSettingsIO final {
         static constexpr uint32_t CONFIG_MAGIC = 0x52464543; // "RFEC"
         static constexpr uint32_t SHADER_MAGIC = 0x52464553; // "RFES"
-        static constexpr uint32_t VERSION = 1;
+        static constexpr uint32_t VERSION = 2;
 
         RFFSettingsIO() = delete;
 

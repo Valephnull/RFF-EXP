@@ -104,7 +104,7 @@ namespace merutilm::rff2 {
         fractal.general.bailout = bailout;
         fractal.general.logZoom = logZoom;
         fractal.general.threads = std::max(1U, localThreads);
-        fractal.reference.center = fixed_point_complex_i1(centerReal, centerImag,
+        fractal.reference.center = fixed_point_complex(centerReal, centerImag,
                                                           Perturbator::logZoomToExp10(logZoom));
         fractal.reference.useParallelRefCalculation = useParallelReference;
         fractal.reference.sync.referenceSynchronizationInterval = referenceSynchronizationInterval;

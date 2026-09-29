@@ -27,7 +27,6 @@ add_executable(
         src/rff2/app/FnFractal.cpp
         src/rff2/app/FnRender.cpp
         src/rff2/app/FnShader.cpp
-        src/rff2/mb/MB2Locator.cpp
         src/rff2/mb/MandelbrotFeatureFinder.cpp
         src/rff2/app/FnExplore.cpp
         src/rff2/app/AutoExplorer.cpp
@@ -51,7 +50,6 @@ add_executable(
         src/rff2/app/FnVideo.cpp
         src/rff2/app/IOUtilities.cpp
         src/rff2/io/RFFStaticMapBinary.cpp
-        src/rff2/io/RFFBinary.cpp
         src/rff2/io/RFFLocationBinary.cpp
         src/rff2/io/RFFSettingsIO.cpp
         src/rff2/io/KFRColorLoader.cpp
@@ -79,6 +77,14 @@ add_executable(
         src/rff2/vulkan/CPCInterpolateIsolated.cpp
         src/rff2/vulkan/CPCInterpolateIsolated.hpp
         include/vulkan_helper/engine/wrapped/DescriptorTemplateManager.hpp
+        src/rff2/mb/ReferenceCheckpoint.hpp
+        src/rff2/app/FnListeners.hpp
+        src/rff2/calc/rff_random.hpp
+        src/rff2/mb/MB2Locator.cpp
+        src/rff2/settings/ExpLocatorSettings.hpp
+        src/rff2/io/RFFShaderBinary.cpp
+        src/rff2/io/RFFShaderBinary.hpp
+        src/rff2/io/RFFMapBinary.hpp
 )
 
 target_compile_options(RFF PRIVATE
@@ -106,6 +112,12 @@ target_include_directories(RFF PRIVATE
         ${CMAKE_SOURCE_DIR}/include
 )
 if (WIN32)
+    if (EXISTS "${CLANG64_DIRS}/include/opencv5")
+        set(RFF_OPENCV_INCLUDE_DIR "${CLANG64_DIRS}/include/opencv5")
+    else ()
+        set(RFF_OPENCV_INCLUDE_DIR "${CLANG64_DIRS}/include/opencv4")
+    endif ()
+
     target_link_libraries(
             RFF PRIVATE
             # GMP Linker
@@ -124,8 +136,8 @@ if (WIN32)
     target_include_directories(RFF PRIVATE
             # clang include dirs
             ${CLANG64_DIRS}/include
-            # opencv4 include dirs
-            ${CLANG64_DIRS}/include/opencv4
+            # OpenCV include directory (OpenCV 4 or 5)
+            ${RFF_OPENCV_INCLUDE_DIR}
     )
 elseif (APPLE)
     target_link_libraries(RFF PRIVATE "-framework Cocoa")
@@ -232,7 +244,6 @@ if (RFF_BUILD_TESTS)
 
     add_executable(RFFDynamicMapValidationTest
             tests/RFFDynamicMapValidationTest.cpp
-            src/rff2/io/RFFBinary.cpp
             src/rff2/io/RFFDynamicMapBinary.cpp)
     target_include_directories(RFFDynamicMapValidationTest PRIVATE
             ${CMAKE_SOURCE_DIR}/src
@@ -249,7 +260,8 @@ if (RFF_BUILD_TESTS)
     target_include_directories(RFFSettingsIOTest PRIVATE
             ${CMAKE_SOURCE_DIR}/src
             ${CMAKE_SOURCE_DIR}/include
-            ${CMAKE_SOURCE_DIR}/extern)
+            ${CMAKE_SOURCE_DIR}/extern
+            ${CMAKE_SOURCE_DIR}/extern/imgui)
     if (WIN32)
         target_link_libraries(RFFSettingsIOTest PRIVATE ${CLANG64_LIBS}/libgmp.a)
     else()

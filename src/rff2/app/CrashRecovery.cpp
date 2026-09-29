@@ -1,5 +1,6 @@
 #include "CrashRecovery.hpp"
 
+#include <cmath>
 #include <system_error>
 
 #include "RFF2.hpp"
@@ -42,7 +43,7 @@ namespace merutilm::rff2 {
         if (pendingRecovery) {
             recoveryKind = RecoveryKind::CRASH_AUTOSAVE;
         } else if (const std::optional<RFFLocationBinary> lastRendered =
-                           readValid(RFF2::getBackupLocationPath())) {
+                           readValid(RFF2::getBackupPath(Constants::File::EXT_LOCATION))) {
             pendingRecovery = lastRendered;
             recoveryKind = RecoveryKind::LAST_RENDERED;
         }
@@ -89,20 +90,20 @@ namespace merutilm::rff2 {
         }
         if (pendingRecovery) {
             ImGui::Separator();
-            ImGui::Text("Log zoom: %.6f", pendingRecovery->getLogZoom());
+            ImGui::Text("Log zoom: %.6f", pendingRecovery->logZoom);
             ImGui::Text("Iterations: %llu",
-                        static_cast<unsigned long long>(pendingRecovery->getMaxIteration()));
+                        static_cast<unsigned long long>(pendingRecovery->maxIteration));
         }
 
         const char *acceptLabel = crashAutosave ? "Recover" : "Reload";
         if (ImGui::Button(acceptLabel, ImVec2(180, 0))) {
             if (pendingRecovery) {
                 Settings &settings = app.getSettings();
-                settings.fractal.reference.center = fixed_point_complex_i1(
-                        pendingRecovery->getReal(), pendingRecovery->getImag(),
-                        Perturbator::logZoomToExp10(pendingRecovery->getLogZoom()));
-                settings.fractal.general.logZoom = pendingRecovery->getLogZoom();
-                settings.fractal.perturb.maxIteration = pendingRecovery->getMaxIteration();
+                settings.fractal.reference.center = fixed_point_complex(
+                        pendingRecovery->real, pendingRecovery->imag,
+                        Perturbator::logZoomToExp10(pendingRecovery->logZoom));
+                settings.fractal.general.logZoom = pendingRecovery->logZoom;
+                settings.fractal.perturb.maxIteration = pendingRecovery->maxIteration;
                 settings.fractal.reference.reuse = false;
                 app.getRequests().requestRecompute();
             }
@@ -139,8 +140,9 @@ namespace merutilm::rff2 {
         FractalSettings &fractal = app.getSettings().fractal;
         const std::string real = fractal.reference.center.real.to_string();
         const std::string imag = fractal.reference.center.imag.to_string();
-        RFFLocationBinary(fractal.general.logZoom, real, imag, fractal.perturb.maxIteration)
-                .exportFile(temporaryPath);
+        RFFBinary::exportFile(
+                RFFLocationBinary(fractal.general.logZoom, real, imag, fractal.perturb.maxIteration),
+                temporaryPath);
 
         std::error_code error;
         if (std::filesystem::exists(temporaryPath, error)) {
@@ -156,8 +158,9 @@ namespace merutilm::rff2 {
     }
 
     std::optional<RFFLocationBinary> CrashRecovery::readValid(const std::filesystem::path &path) {
-        const RFFLocationBinary location = RFFLocationBinary::read(path);
-        if (!location.hasData())
+        const RFFLocationBinary location = RFFBinary::importFile<RFFLocationBinary>(path);
+        if (location.real.empty() || location.imag.empty() || !std::isfinite(location.logZoom) ||
+            location.maxIteration == 0)
             return std::nullopt;
         return location;
     }

@@ -1,174 +1,415 @@
 //
-// Created by Merutilm on 2025-05-16.
-// modified by Vinfinity
-//
+// Created by Merutilm on 9/26/26.
+// Sensitivity-Tapered Multiple Shooting (STMS) Algorithm by GPT-6 Astra on 2026-09-10
+// Re-Implemented by Merutilm on 2026-09-13
 
-#include "MB2Locator.h"
 
-#include "MB2Reference.h"
-#include "MB2RenderData.hpp"
-#include "Perturbator.h"
-
+#include "MB2Locator.hpp"
 
 namespace merutilm::rff2 {
 
-    std::unique_ptr<fixed_point_complex_i1> MB2Locator::findCenterOffset(const MB2RenderDataBase &data) {
-        const int exp10 = Perturbator::logZoomToExp10(data.fractalSettings.general.logZoom);
-        const MB2ReferenceBase *reference = data.getReference();
-        if (!reference)
-            return nullptr;
+    MB2Locator::MB2Locator(const ParallelRenderState &state, const MB2RenderDataBase &data,
+                           const ExpLocatorSettings &locSettings, FnListeners::FnLocatingMB2W &&fnLocatingMB2W) :
+        state(state), reference(*data.getReference()), locSettings(locSettings), threads(data.fractalSettings.general.threads),
+        currCenter(data.fractalSettings.reference.center),
+        checkpoints(data.getReference()->checkpoints), fnLocatingMB2W(std::move(fnLocatingMB2W)) {}
 
-        fixed_point_complex bn = reference->fpgBn.create_variant(exp10, -exp10 * 2);
-        fixed_point_complex z = reference->fpgReference.create_variant(exp10, -exp10 * 2);
-        fixed_point_complex::neg(bn);
-        fixed_point_complex::div(z, z, bn);
-        return std::make_unique<fixed_point_complex_i1>(z.real, z.imag, exp10);
+    fixed_point_complex MB2Locator::calcCenterOffset(const MB2ReferenceBase &reference) {
+
+
+        const int64_t exp10 = Perturbator::logZoomToExp10(reference.logZoom);
+        std::array<fixed_point_decimal, fixed_point_complex::TEMPS_COUNT> temps =
+                fixed_point_complex::create_temps(exp10);
+        fixed_point_complex off(0.0, 0.0, exp10);
+        calcCenterOffset(off, reference.checkpoints.back().z.create_variant(exp10),
+                         fixed_point_complex(reference.fpgBn, exp10), temps);
+        return off;
     }
 
-    std::unique_ptr<MB2Locator>
-    MB2Locator::locateMinibrot(vkh::Core &core, ParallelRenderState &state, const MB2RenderDataBase &data,
-                               std::unique_ptr<ApproxTableCacheBase> &cache,
-                               const std::function<void(uint64_t, int)> &actionWhileFindingMinibrotCenter,
-                               const std::function<void(uint64_t, float)> &actionWhileSeriesApprox,
-                               const std::function<void(uint64_t, float)> &actionWhileCreatingTable,
-                               const std::function<void(float)> &actionWhileFindingMinibrotZoom) {
-        // code flowing
-        // e.g. zoom * 2 -> zoom * 1.5 -> zoom * 1.75.....
-        // it is not required reference calculations.
-        // check 'dcMax' iterate and check its iteration is max iteration
-        // if true, zoom out. otherwise, zoom in.
-        // it can approximate zoom when repeats until zoom increment is lower than
-        // specific small number. O(w_log N)
+    void MB2Locator::calcCenterOffset(fixed_point_complex &result, const fixed_point_complex &z,
+                                      const fixed_point_complex &bn,
+                                      std::array<fixed_point_decimal, fixed_point_complex::TEMPS_COUNT> &temps) {
+        fixed_point_complex::div(result, z, bn, temps);
+        result.neg();
+    }
+
+    PartitionStatus MB2Locator::processPartition(const uint32_t partitionIndex, const int64_t dcCurrExp10,
+                                                 const int64_t aimExp10, ThreadTempCache &cache) {
+
+        const ReferenceCheckpoint &currentCheckpoint = checkpoints[partitionIndex];
+        const ReferenceCheckpoint &nextCheckpoint = checkpoints[partitionIndex + 1];
+        auto &blockResult = blockResults[partitionIndex];
+
+        const uint64_t startIteration = currentCheckpoint.refIteration;
+        const uint64_t endIteration = nextCheckpoint.refIteration;
 
 
-        std::unique_ptr<MB2RenderDataBase> result =
-                findAccurateCenterPerturbator(core, state, data, cache, actionWhileFindingMinibrotCenter,
-                                              actionWhileSeriesApprox, actionWhileCreatingTable);
+        const int64_t cutDigitCount = getCutDigitCount(approxAmplitudes[partitionIndex]);
+        const int64_t srcExp10 = aimExp10 / 2;
+        const int64_t exp10Decrement = std::max(static_cast<int64_t>(1), srcExp10 - dcCurrExp10);
 
-        if (result == nullptr) {
-            return nullptr;
+        // magic number 3 and 64 is experimental, appropriate value is unknown.
+        // magic number 4 in latter is double-step behind newton precision.
+        const int64_t exp10 = locSettings.burst ? std::max(srcExp10 - exp10Decrement * 3 + cutDigitCount - 64, aimExp10)
+                                                : std::max(srcExp10 - exp10Decrement * 4, aimExp10);
+
+        int64_t currentExp10 = exp10;
+        cache.z = currentCheckpoint.z;
+        cache.zExpected = nextCheckpoint.z;
+        cache.c = currCenter;
+        fixed_point_complex &z = cache.z;
+        fixed_point_complex &zExpected = cache.zExpected;
+        fixed_point_complex &c = cache.c;
+        z.set_exp10(currentExp10);
+        c.set_exp10(currentExp10);
+        for (auto &t: cache.temps) {
+            t.set_exp10(currentExp10);
         }
-        dex resultDcMax = result->getPerturbator()->dcMax;
 
-        auto &logZoom = result->fractalSettings.general.logZoom;
-        float resultZoom = logZoom;
-        float zoomIncrement = resultZoom / 4;
+        auto &an = blockResult.an;
+        auto &bn = blockResult.bn;
+        an.one();
+        bn.zero();
+        an.set_exp10(currentExp10);
+        bn.set_exp10(currentExp10);
 
-        while (zoomIncrement > ZOOM_INCREMENT_LIMIT) {
-            if (state.interruptRequested()) {
-                return nullptr;
+        int64_t prevExp2div64 = 0;
+
+        // An, Bn generation
+        for (uint64_t iteration = startIteration; iteration < endIteration; ++iteration) {
+
+            if (state.interruptRequested() && iteration % Constants::Fractal::HOTPATH_INTERRUPT_CHECK_INTERVAL)
+                return PartitionStatus::INTERRUPTED;
+
+            if (iteration > 0) {
+                fixed_point_complex::mul(an, an, z, cache.temps);
+                fixed_point_complex::dbl(an, an);
             }
 
-            if (checkMaxIterationOnly(*result)) {
-                resultZoom -= zoomIncrement;
-                resultDcMax = resultDcMax * rff_math::exp10(zoomIncrement);
+            fixed_point_complex::mul(bn, bn, z, cache.temps);
+            fixed_point_complex::dbl(bn, bn);
+            bn.add_one();
+
+            fixed_point_complex::sqr(z, z, cache.temps);
+            fixed_point_complex::add(z, z, c);
+
+
+            // the code below is currently not working for specific location, i dont know why
+            if (locSettings.burst) {
+
+                if (static_cast<complex<dex>>(z).norm_approx() > dex(1e8)) {
+                    return PartitionStatus::ERROR_BURST_Z_ESCAPED;
+                }
+
+                const int64_t cutDigit = getCutDigitCount(static_cast<complex<dex>>(an));
+                currentExp10 = std::min(static_cast<int64_t>(-1), exp10 + cutDigit);
+                const int64_t exp2div64 = fixed_point_decimal::exp10_to_exp2div64(currentExp10);
+
+                if (exp2div64 != prevExp2div64) {
+                    z.set_exp10(currentExp10);
+                    c = currCenter;
+                    c.set_exp10(currentExp10);
+                    for (auto &t: cache.temps) {
+                        t.set_exp10(currentExp10, false);
+                    }
+                    an.set_exp10(currentExp10);
+                    bn.set_exp10(currentExp10);
+                    prevExp2div64 = exp2div64;
+                }
+            }
+        }
+
+
+        zExpected.set_exp10(currentExp10);
+        blockResult.residual.set_exp10(currentExp10);
+        fixed_point_complex::sub(blockResult.residual, z, zExpected);
+
+        blockResult.fzgAn = static_cast<complex<dex>>(an);
+        return PartitionStatus::SUCCESS;
+    }
+
+    PartitionStatus MB2Locator::processPartitions(const int64_t dcCurrExp10, const int64_t aimExp10,
+                                                  std::mutex &partitionPickerMutex, uint32_t &processedPartition,
+                                                  ThreadTempCache &cache) {
+        while (true) {
+            uint32_t partitionIndex = 0;
+            {
+                std::scoped_lock lock(partitionPickerMutex);
+                partitionIndex = processedPartition++;
+
+                if (partitionIndex >= checkpoints.size() - 1) {
+                    return PartitionStatus::SUCCESS;
+                }
+
+                fnLocatingMB2W(dcCurrExp10, partitionIndex, static_cast<uint32_t>(checkpoints.size() - 1));
+            }
+
+            const PartitionStatus result = processPartition(partitionIndex, dcCurrExp10, aimExp10, cache);
+
+            if (result != PartitionStatus::SUCCESS)
+                return result;
+        }
+    }
+
+    void MB2Locator::translateCenter(fixed_point_complex &dc, const fixed_point_complex &t,
+                                     const fixed_point_complex &u) {
+        prevCenter = currCenter;
+        fixed_point_complex::add(temp, t, checkpoints.back().z);
+        calcCenterOffset(dc, temp, u, threadTempCaches[0].temps);
+        fixed_point_complex::add(currCenter, currCenter, dc);
+    }
+
+    void MB2Locator::rebaseCheckpoints(const fixed_point_complex &dc, const std::vector<fixed_point_complex> &tt,
+                                       const std::vector<fixed_point_complex> &ut) {
+        for (uint32_t i = 1; i < checkpoints.size(); ++i) {
+            auto &checkpoint = checkpoints[i];
+
+            fixed_point_complex::mul(temp, dc, ut[i], threadTempCaches[0].temps);
+            fixed_point_complex::add(checkpoint.z, checkpoint.z, tt[i]);
+            fixed_point_complex::add(checkpoint.z, checkpoint.z, temp);
+        }
+    }
+
+    void MB2Locator::calculateAmplitudes(complex<dex> &fzgAn, complex<dex> &fpgBn, std::vector<fixed_point_complex> &tt,
+                                         std::vector<fixed_point_complex> &ut) {
+        fzgAn = complex<dex>::ONE;
+        tt[0].zero();
+        ut[0].zero();
+
+
+        for (uint32_t i = 0; i < blockResults.size(); ++i) {
+            const auto &blockResult = blockResults[i];
+            fzgAn = (fzgAn * blockResult.fzgAn).try_normalized_value();
+
+            fixed_point_complex::mul(tt[i + 1], tt[i], blockResult.an, threadTempCaches[0].temps);
+            fixed_point_complex::add(tt[i + 1], tt[i + 1], blockResult.residual);
+
+            fixed_point_complex::mul(ut[i + 1], ut[i], blockResult.an, threadTempCaches[0].temps);
+            fixed_point_complex::add(ut[i + 1], ut[i + 1], blockResult.bn);
+        }
+        fpgBn = static_cast<complex<dex>>(ut.back());
+    }
+
+    int64_t MB2Locator::getCutDigitCount(const complex<dex> &an) { return rff_math::log10Approx(an.norm_approx()); }
+    void MB2Locator::prepareApproxAmplitudes() {
+        complex<dex> an = complex<dex>::ONE;
+        for (uint32_t i = 0; i < static_cast<uint32_t>(blockResults.size()); ++i) {
+            approxAmplitudes[i] = an;
+            an *= blockResults[i].fzgAn;
+            an = an.try_normalized_value();
+        }
+    }
+
+    void MB2Locator::reserveExp10(fixed_point_complex &dc, std::vector<fixed_point_complex> &tt,
+                                  std::vector<fixed_point_complex> &ut, const int64_t aimExp10) {
+
+        // partition size 512
+        // maximum value 2^512
+        // 2^512 => (2^6)^x => 64^x
+        // can be squared. multiplying 2
+        const uint64_t alloc =
+                -fixed_point_decimal::exp10_to_exp2div64(aimExp10 - Constants::Fractal::EXP10_ADDITION) * 2 + 1;
+        const uint64_t abnAlloc =
+                -fixed_point_decimal::exp10_to_exp2div64(aimExp10 - Constants::Fractal::EXP10_ADDITION) * 2 +
+                Constants::Fractal::PARTITION_SIZE / 3 + 1;
+
+        currCenter.try_realloc_inc(alloc);
+        dc.try_realloc_inc(alloc);
+        temp.try_realloc_inc(alloc);
+
+        for (auto &tt0: tt) {
+            tt0.try_realloc_inc(alloc);
+        }
+        for (auto &ut0: ut) {
+            ut0.try_realloc_inc(alloc);
+        }
+        for (auto &checkpoint: checkpoints) {
+            checkpoint.z.try_realloc_inc(alloc);
+        }
+        for (auto &threadTempCache: threadTempCaches) {
+            threadTempCache.z.try_realloc_inc(alloc);
+            threadTempCache.zExpected.try_realloc_inc(alloc);
+            threadTempCache.c.try_realloc_inc(alloc);
+            for (auto &t: threadTempCache.temps) {
+                t.try_realloc_inc(abnAlloc);
+            }
+        }
+        for (auto &blockResult: blockResults) {
+            blockResult.an.try_realloc_inc(abnAlloc);
+            blockResult.bn.try_realloc_inc(abnAlloc);
+            blockResult.residual.try_realloc_inc(abnAlloc);
+        }
+    }
+
+    void MB2Locator::setExp10(fixed_point_complex &dc, std::vector<fixed_point_complex> &tt,
+                              std::vector<fixed_point_complex> &ut, const int64_t exp10) {
+
+        currCenter.set_exp10(exp10);
+        dc.set_exp10(exp10);
+        temp.set_exp10(exp10);
+
+        for (auto &tt0: tt) {
+            tt0.set_exp10(exp10);
+        }
+        for (auto &ut0: ut) {
+            ut0.set_exp10(exp10);
+        }
+        for (auto &checkpoint: checkpoints) {
+            checkpoint.z.set_exp10(exp10);
+        }
+        for (auto &threadTempCache: threadTempCaches) {
+            threadTempCache.z.set_exp10(exp10);
+            threadTempCache.zExpected.set_exp10(exp10);
+            threadTempCache.c.set_exp10(exp10);
+            for (auto &t: threadTempCache.temps) {
+                t.set_exp10(exp10);
+            }
+        }
+        for (auto &blockResult: blockResults) {
+            blockResult.an.set_exp10(exp10);
+            blockResult.bn.set_exp10(exp10);
+            blockResult.residual.set_exp10(exp10);
+        }
+    }
+
+    bool MB2Locator::checkAndUpdateHistory(std::array<int64_t, EXP10_HISTORY_LENGTH> &exp10History,
+                                           const int64_t dcCurrExp10, const bool burst) {
+        for (uint32_t i = 1; i < static_cast<uint32_t>(exp10History.size()); ++i) {
+            exp10History[i - 1] = exp10History[i];
+        }
+        exp10History.back() = dcCurrExp10;
+        if (exp10History.front() - dcCurrExp10 <= 1 || dcCurrExp10 - exp10History[exp10History.size() - 2] > 10) {
+            if (burst) {
+                vkh::logger::log_err("Failed to locate minibrot using 'Burst-locate'. Please uncheck the “Use "
+                                     "Burst-locate” box and try again.");
+                return false;
             } else {
-                resultZoom += zoomIncrement;
-                resultDcMax = resultDcMax / rff_math::exp10(zoomIncrement);
-            }
-
-            actionWhileFindingMinibrotZoom(resultZoom);
-            logZoom = resultZoom;
-            result->translate(logZoom, resultDcMax, result->fractalSettings.perturb,
-                              result->fractalSettings.reference.center, actionWhileSeriesApprox);
-            zoomIncrement /= 2;
-        }
-
-        return std::make_unique<MB2Locator>(std::move(result));
-    }
-
-    std::unique_ptr<MB2RenderDataBase>
-    MB2Locator::locateMinibrotCenter(vkh::Core &core, ParallelRenderState &state, const MB2RenderDataBase &data,
-                                     std::unique_ptr<ApproxTableCacheBase> &cache,
-                                     const std::function<void(uint64_t, int)> &actionWhileFindingMinibrotCenter,
-                                     const std::function<void(uint64_t, float)> &actionWhileSeriesApprox,
-                                     const std::function<void(uint64_t, float)> &actionWhileCreatingTable) {
-        return findAccurateCenterPerturbator(core, state, data, cache, actionWhileFindingMinibrotCenter,
-                                             actionWhileSeriesApprox, actionWhileCreatingTable);
-    }
-
-    /**
-     * This method moves the data, so the paramed data is no longer available.
-     * Use the return value instead of this.
-     * @return result table
-     */
-    std::unique_ptr<MB2RenderDataBase> MB2Locator::findAccurateCenterPerturbator(
-            vkh::Core &core, ParallelRenderState &state, const MB2RenderDataBase &data,
-            std::unique_ptr<ApproxTableCacheBase> &cache,
-            const std::function<void(uint64_t, int)> &actionWhileFindingMinibrotCenter,
-            const std::function<void(uint64_t, float)> &actionWhileSeriesApprox,
-            const std::function<void(uint64_t, float)> &actionWhileCreatingTable) {
-        // multiply zoom by 2 and find center offset.
-        // set the center to center + centerOffset.
-
-        uint64_t longestPeriod = data.getReference()->longestPeriod();
-        uint64_t refLen = data.getReference()->length();
-
-        const float logZoom = data.fractalSettings.general.logZoom;
-        const FractalSettings &calc = data.fractalSettings;
-        FractalSettings doubledZoomCalc = calc;
-        const float doubledLogZoom = logZoom * 2;
-        const int doubledExp10 = Perturbator::logZoomToExp10(doubledLogZoom);
-
-        doubledZoomCalc.general.logZoom = doubledLogZoom;
-        doubledZoomCalc.perturb.absoluteIterationMode = false;
-        doubledZoomCalc.perturb.decimalizeIterationMethod = FrtDecimalizeIterationMethod::NONE;
-
-
-        dex doubledZoomDcMax = data.getPerturbator()->dcMax / rff_math::exp10(logZoom);
-
-
-        int centerFixCount = 0;
-
-        std::unique_ptr<MB2RenderDataBase> doubledZoomData = nullptr;
-
-        while (doubledZoomData == nullptr || !doubledZoomData->getPerturbator() ||
-               !checkMaxIterationOnly(*doubledZoomData)) {
-            if (state.interruptRequested()) {
-                return nullptr;
-            }
-
-            auto center = doubledZoomCalc.reference.center.create_variant(doubledExp10);
-            auto centerOffset = findCenterOffset(doubledZoomData == nullptr ? data : *doubledZoomData)
-                                        ->create_variant(doubledExp10);
-
-            fixed_point_complex::add(center, center, centerOffset);
-
-            if (centerOffset.is_strict_zero()) {
-                vkh::logger::log_err("The center could not be found, or you are already in the center");
-                return nullptr;
-            }
-            doubledZoomCalc.reference.center = center;
-            ++centerFixCount;
-
-
-            if (doubledLogZoom < Constants::Fractal::MULTITHREAD_ZOOM_THRESHOLD) {
-                doubledZoomData = std::make_unique<DoubleMB2RenderData>(
-                        core, state, doubledZoomCalc, false, cache, doubledZoomDcMax,
-                        Perturbator::logZoomToExp10(doubledLogZoom), refLen, longestPeriod,
-                        [&actionWhileFindingMinibrotCenter, &centerFixCount](const uint64_t p) {
-                            actionWhileFindingMinibrotCenter(p, centerFixCount);
-                        },
-                        actionWhileSeriesApprox, actionWhileCreatingTable);
-
-            } else {
-                doubledZoomData = std::make_unique<DexMB2RenderData>(
-                        core, state, doubledZoomCalc, false, cache, doubledZoomDcMax,
-                        Perturbator::logZoomToExp10(doubledLogZoom), refLen, longestPeriod,
-                        [&actionWhileFindingMinibrotCenter, &centerFixCount](const uint64_t p) {
-                            actionWhileFindingMinibrotCenter(p, centerFixCount);
-                        },
-                        actionWhileSeriesApprox, actionWhileCreatingTable);
+                vkh::logger::log_err(
+                        "Failed to locate minibrot. it might be a bug! please report this issue to developer.");
+                return false;
             }
         }
-        return doubledZoomData;
+        return true;
     }
 
-    bool MB2Locator::checkMaxIterationOnly(const MB2RenderDataBase &renderData) {
+    void MB2Locator::solvePartitionsParallel(const int64_t aimExp10, const int64_t dcCurrExp10) {
 
-        const auto it = static_cast<uint64_t>(renderData.getPerturbator()->iterate(
-                {renderData.getPerturbator()->dcMax, renderData.getPerturbator()->dcMax / dex(2)}));
 
-        return it == renderData.fractalSettings.perturb.maxIteration;
+        std::vector<std::unique_ptr<std::jthread>> threadPool(threads);
+        // ReSharper disable once CppTooWideScope
+        std::mutex partitionPickerMutex;
+        // ReSharper disable once CppTooWideScope
+        uint32_t processedPartition = 0;
+
+
+        for (uint32_t i = 0; i < threadPool.size(); ++i) {
+            threadPool[i] = std::make_unique<std::jthread>(
+                    [this, dcCurrExp10, aimExp10, &partitionPickerMutex, &processedPartition, i] {
+                        status[i] = processPartitions(dcCurrExp10, aimExp10, partitionPickerMutex, processedPartition,
+                                                      threadTempCaches[i]);
+                    });
+        }
+
+        // wait for complete
+        for (const auto &thread: threadPool) {
+            if (thread->joinable()) {
+                thread->join();
+            }
+        }
+    }
+    void MB2Locator::refreshInfos(const complex<dex> &fzgAn, const complex<dex> &fpgBn, const fixed_point_complex &dc,
+                                  complex<dex> &mbScale, double &aimLogZoom, int64_t &aimExp10, dex &dcd) {
+        mbScale = fzgAn * fpgBn;
+        aimLogZoom = rff_math::log10(mbScale.norm_approx());
+        aimExp10 = Perturbator::logZoomToExp10(aimLogZoom + MB2_LOG_ZOOM_OFFSET);
+        dcd = static_cast<complex<dex>>(dc).norm_approx();
+    }
+
+    bool MB2Locator::shouldAbort(const ParallelRenderState &state, const std::vector<PartitionStatus> &status) {
+        if (state.interruptRequested()) {
+            return true;
+        }
+
+        return std::ranges::any_of(status, [](const PartitionStatus &s) { return s != PartitionStatus::SUCCESS; });
+    }
+
+    std::optional<MB2LocateResult> MB2Locator::locate() {
+
+        const int64_t refExp10 = Perturbator::logZoomToExp10(reference.logZoom);
+        double aimLogZoom = reference.logZoom * 2;
+        int64_t aimExp10 = refExp10 * 2;
+
+        // copy checkpoints
+        blockResults.resize(checkpoints.size() - 1, BlockResult{
+                                                            .residual = fixed_point_complex(0.0, 0.0, refExp10),
+                                                            .fzgAn = complex<dex>::ONE,
+                                                    });
+
+        for (uint32_t i = 0; i < blockResults.size(); i++) {
+            blockResults[i].fzgAn = checkpoints[i + 1].fzgAn;
+        }
+
+        approxAmplitudes.resize(checkpoints.size() - 1);
+        status.resize(threads);
+        threadTempCaches.resize(threads);
+
+        complex<dex> fzgAn = complex<dex>::ONE;
+        complex<dex> fpgBn = complex<dex>::ZERO;
+
+        std::vector tt(checkpoints.size(), fixed_point_complex{0.0, 0.0, refExp10});
+        std::vector ut(checkpoints.size(), fixed_point_complex{0.0, 0.0, refExp10});
+
+        currCenter.set_exp10(refExp10);
+        temp.set_exp10(refExp10);
+        for (auto &t: threadTempCaches[0].temps) {
+            t.set_exp10(refExp10);
+        }
+
+
+        fixed_point_complex dc(0.0, 0.0, refExp10);
+
+        calcCenterOffset(dc, checkpoints.back().z.create_variant(refExp10),
+                         fixed_point_complex(reference.fpgBn, refExp10), threadTempCaches[0].temps);
+        fixed_point_complex::add(currCenter, currCenter, dc);
+
+        dex dcd = static_cast<complex<dex>>(dc).norm_approx();
+        complex<dex> mbScale = complex<dex>::ONE;
+
+        std::array<int64_t, EXP10_HISTORY_LENGTH> exp10History{};
+
+        if (reference.dcMax < dcd) {
+            vkh::logger::log_err("Center could not be found");
+            return std::nullopt;
+        }
+
+        reserveExp10(dc, tt, ut, aimExp10);
+
+        do {
+
+            const int64_t dcCurrExp10 = dcd.is_zero() ? aimExp10 : rff_math::log10Approx(dcd);
+            if (!checkAndUpdateHistory(exp10History, dcCurrExp10, locSettings.burst)) {
+                return std::nullopt;
+            }
+
+            prepareApproxAmplitudes();
+            solvePartitionsParallel(aimExp10, dcCurrExp10);
+            if (shouldAbort(state, status))
+                return std::nullopt;
+            setExp10(dc, tt, ut, aimExp10);
+            calculateAmplitudes(fzgAn, fpgBn, tt, ut);
+            translateCenter(dc, tt.back(), ut.back());
+            rebaseCheckpoints(dc, tt, ut);
+            refreshInfos(fzgAn, fpgBn, dc, mbScale, aimLogZoom, aimExp10, dcd);
+
+            if (mbScale.is_zero()) {
+                vkh::logger::log_err("minibrot size cannot be measured");
+                return std::nullopt;
+            }
+
+        } while (rff_math::log10(dcd) > -aimLogZoom);
+
+        const auto resultLogZoom = aimLogZoom + MB2_LOG_ZOOM_OFFSET;
+
+        return MB2LocateResult{.center = std::move(currCenter), .logZoom = resultLogZoom};
     }
 } // namespace merutilm::rff2

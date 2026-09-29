@@ -12,14 +12,15 @@ namespace {
                 .fractal = {
                         .general = {.bailout = 4.0f, .logZoom = 12.5f, .threads = 1},
                         .reference = {
-                                .center = fixed_point_complex_i1("-0.743643887037151", "0.13182590420533",
+                                .center = fixed_point_complex("-0.743643887037151", "0.13182590420533",
                                                                  Perturbator::logZoomToExp10(12.5f)),
                                 .useParallelRefCalculation = true,
                                 .sync = {.referenceSynchronizationInterval = 7,
                                          .referenceSynchronizationRadiusPower = 5},
                                 .compression = {.compressCriteria = 1234, .compressionThresholdPower = 9},
-                                .periodMultiplier = 3,
                                 .reuse = true,
+                                .useFixedPrecision = true,
+                                .fixedPrecisionNeg = 32,
                         },
                         .sa = {.use = true, .appliedTermsCount = 9, .validatedTermsCount = 2, .epsilonPower = -6.0f},
                         .mpa = {.minSkipReference = 8,
@@ -81,7 +82,9 @@ namespace {
                 .video = {.data = {.defaultZoomIncrement = 2.5f, .isStatic = true},
                           .animation = {.overZoom = 1.5f, .showText = false, .mps = 2.0f},
                           .exportation = {.fps = 30.0f, .bitrate = 12000}},
-                .explore = {.autoMoveCursorToCenter = false, .autoAimRadiusPixels = 137}};
+                .explore = {.autoMoveCursorToCenter = false,
+                            .autoAimRadiusPixels = 137,
+                            .locator = {.burst = true}}};
     }
 }
 

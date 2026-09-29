@@ -14,7 +14,7 @@
 #include "../util/Utilities.h"
 
 #include "../constants/Constants.hpp"
-#include "../mb/MB2Locator.h"
+#include "../mb/MB2Locator.hpp"
 
 namespace merutilm::rff2 {
 
@@ -178,66 +178,33 @@ namespace merutilm::rff2 {
                                                      runStart, folding, power, sizeFactor, statusStartTime] {
                             bool resultRenderRequested = false;
                             try {
-                                auto centerProgress = [&app, period, statusStartTime](const uint64_t p,
-                                                                                      const int pass) {
-                                    static float lastUpdate = 0;
-                                    const float now = app.getWindowContext().getWindow()->getTime();
-                                    if (now - lastUpdate > Constants::Status::UI_REFRESH_INTERVAL) {
-                                        lastUpdate = now;
-                                        setNewtonStatus(std::format(
-                                                "Center pass {}: {:.2f}%", pass,
-                                                100.0 * static_cast<double>(p) /
-                                                        static_cast<double>(std::max<uint64_t>(1, period))));
-                                    }
-                                    getActionWhileFindingMBCenter(app, period, statusStartTime)(p, pass);
-                                };
-
-                                if (runAction == 1) {
-                                    std::unique_ptr<MB2RenderDataBase> centered = MB2Locator::locateMinibrotCenter(
-                                            app.engine->getCore(), app.getState(), *data, *cache, centerProgress,
-                                            getActionWhileSeriesApprox(app, statusStartTime),
-                                            getActionWhileCreatingTable(app, statusStartTime));
-                                    if (!centered) {
-                                        setNewtonStatus("Center search cancelled or did not converge.");
-                                    } else {
-                                        settings.fractal.reference.center = centered->fractalSettings.reference.center;
-                                        setNewtonStatus("Center found. Rendering centered view...");
-                                        app.unlockNavigationWhenRenderFinishes();
-                                        app.getRequests().requestRecompute();
-                                        resultRenderRequested = true;
-                                    }
+                                MB2Locator locator(app.getState(), *data, settings.explore.locator,
+                                                   app.getFnFindingMBCenter(statusStartTime));
+                                const std::optional<MB2LocateResult> result = locator.locate();
+                                if (!result) {
+                                    setNewtonStatus(runAction == 1
+                                                            ? "Center search cancelled or did not converge."
+                                                            : "Newton zoom cancelled or did not converge.");
                                 } else {
-                                    std::unique_ptr<MB2Locator> locator = MB2Locator::locateMinibrot(
-                                            app.engine->getCore(), app.getState(), *data, *cache, centerProgress,
-                                            getActionWhileSeriesApprox(app, statusStartTime),
-                                            getActionWhileCreatingTable(app, statusStartTime),
-                                            [&app, statusStartTime](const float zoom) {
-                                                setNewtonStatus(std::format("Sizing minibrot: log zoom {:.4f}", zoom));
-                                                getActionWhileFindingZoom(app, statusStartTime)(zoom);
-                                            });
-                                    if (!locator) {
-                                        setNewtonStatus("Newton zoom cancelled or did not converge.");
+                                    settings.fractal.reference.center = result->center;
+                                    if (runAction == 1) {
+                                        setNewtonStatus("Center found. Rendering centered view...");
                                     } else {
-                                        const FractalSettings &result = locator->data->fractalSettings;
-                                        const float minibrotZoom = result.general.logZoom;
-                                        float targetZoom;
-                                        if (runTarget == 0) {
-                                            targetZoom =
-                                                    std::lerp(runStart, minibrotZoom, folding) - std::log10(sizeFactor);
-                                        } else {
-                                            targetZoom = power * minibrotZoom +
-                                                         (1.0f - power) * Constants::Fractal::ZOOM_MIN -
-                                                         std::log10(sizeFactor);
-                                        }
-                                        settings.fractal.reference.center = result.reference.center;
+                                        const double minibrotZoom = result->logZoom;
+                                        const double targetZoom = runTarget == 0
+                                                ? std::lerp(static_cast<double>(runStart), minibrotZoom,
+                                                            static_cast<double>(folding)) - std::log10(sizeFactor)
+                                                : static_cast<double>(power) * minibrotZoom +
+                                                          (1.0 - power) * Constants::Fractal::ZOOM_MIN -
+                                                          std::log10(sizeFactor);
                                         settings.fractal.general.logZoom =
                                                 std::max(Constants::Fractal::ZOOM_MIN, targetZoom);
                                         setNewtonStatus(std::format("Done. Minibrot log zoom {:.4f}; view {:.4f}",
                                                                     minibrotZoom, settings.fractal.general.logZoom));
-                                        app.unlockNavigationWhenRenderFinishes();
-                                        app.getRequests().requestRecompute();
-                                        resultRenderRequested = true;
                                     }
+                                    app.unlockNavigationWhenRenderFinishes();
+                                    app.getRequests().requestRecompute();
+                                    resultRenderRequested = true;
                                 }
                             } catch (const std::exception &e) {
                                 setNewtonStatus(std::string("Newton search failed: ") + e.what());

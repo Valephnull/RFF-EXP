@@ -3,9 +3,11 @@
 //
 
 #pragma once
+#include "ExpLocatorSettings.hpp"
 namespace merutilm::rff2 {
     struct ExploreSettings {
         bool autoMoveCursorToCenter;
         int autoAimRadiusPixels;
+        ExpLocatorSettings locator;
     };
 }

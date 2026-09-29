@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include "../io/RFFDynamicMapBinary.h"
+#include "../io/RFFDynamicMapBinary.hpp"
 #include "../settings/Settings.h"
 #include "VideoBufferCache.hpp"
 #include "VideoWindowRenderer.hpp"
@@ -14,8 +14,8 @@ namespace merutilm::rff2 {
     class VideoWindowRenderManager final : vkh::EngineHandler {
 
         vkh::WindowContext &wc;
-        RFFBinary *normal = nullptr;
-        RFFBinary *zoomed = nullptr;
+        RFFMapBinary *normal = nullptr;
+        RFFMapBinary *zoomed = nullptr;
         const VkExtent2D videoExtent;
         const Settings &targetSettings;
         std::unique_ptr<VideoWindowRenderer> renderer = nullptr;
@@ -33,19 +33,19 @@ namespace merutilm::rff2 {
 
         VideoWindowRenderManager &operator=(VideoWindowRenderManager &&) = delete;
 
-        void applyCurrentDynamicMap(const RFFDynamicMapBinary &normal, const RFFDynamicMapBinary &zoomed, float currentFrame) const;
+        void applyCurrentDynamicMap(const RFFDynamicMapBinary &normal, const RFFDynamicMapBinary &zoomed, double currentFrame) const;
 
         void setMaxIterationDynamic(double maxIteration) const;
 
         void applyShader() const;
 
-        void setTime(float currentSec) const;
+        void setTime(double currentSec) const;
 
-        void setCurrentFrame(float currentFrame) const;
+        void setCurrentFrame(double currentFrame) const;
 
         void setStatic(bool isStatic) const;
 
-        void setMap(RFFBinary *normal, RFFBinary *zoomed);
+        void setMap(RFFMapBinary *normal, RFFMapBinary *zoomed);
 
         void applyCurrentStaticImage(const cv::Mat &normal, const cv::Mat &zoomed) const;
 
@@ -65,7 +65,7 @@ namespace merutilm::rff2 {
             return wc;
         }
 
-        [[nodiscard]] float calculateLogZoom(float defaultZoomIncrement, float currentFrame) const;
+        [[nodiscard]] double calculateLogZoom(double defaultZoomIncrement, double currentFrame) const;
 
         [[nodiscard]] VideoBufferCache createImage() const;
 

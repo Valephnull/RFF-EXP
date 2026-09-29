@@ -6,6 +6,7 @@
 namespace merutilm::rff2::Constants::File {
 
     constexpr auto EXT_DYNAMIC_MAP = "rfm";
+    constexpr auto EXT_SHADER = "rfs";
     constexpr auto EXT_STATIC_MAP = "rfsm";
     constexpr auto EXT_LOCATION = "rfl";
     constexpr auto EXT_IMAGE = "png";
@@ -14,6 +15,7 @@ namespace merutilm::rff2::Constants::File {
     constexpr auto EXT_CONFIG = "rfc";
     constexpr auto EXT_SHADER_PRESET = "rfsp";
     constexpr auto DESC_DYNAMIC_MAP = "RFF dynamic map binary";
+    constexpr auto DESC_SHADER = "RFF shader";
     constexpr auto DESC_STATIC_MAP = "RFF static map binary";
     constexpr auto DESC_LOCATION = "RFF location binary";
     constexpr auto DESC_IMAGE = "Image file";

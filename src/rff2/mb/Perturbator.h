@@ -4,19 +4,23 @@
 
 #pragma once
 #include "../constants/Constants.hpp"
+#include "../settings/FrtReferenceSettings.hpp"
 
 namespace merutilm::rff2 {
     struct Perturbator {
 
         virtual ~Perturbator() = default;
 
-        static int logZoomToExp10(float logZoom);
+
+        static int64_t getExp10(const FrtReferenceSettings &refSettings, const double logZoom) {
+            return refSettings.useFixedPrecision ? -refSettings.fixedPrecisionNeg : logZoomToExp10(logZoom);
+        }
+
+        static int64_t logZoomToExp10(const double logZoom){
+            return -static_cast<int64_t>(logZoom) - Constants::Fractal::EXP10_ADDITION;
+        }
 
     };
-
-    inline int Perturbator::logZoomToExp10(const float logZoom) {
-        return -static_cast<int>(logZoom) - Constants::Fractal::EXP10_ADDITION;
-    }
 
 
 }
