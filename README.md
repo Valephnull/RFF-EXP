@@ -17,3 +17,5 @@ Currently, I have added:
 ## Installation
 
 Run `installer_windows.bat` as Administrator on Windows, or run `./installer_linux_ubuntu.sh` on Ubuntu 24.04 or newer
+
+I am working on a GitHub Actions script to provide pre-built binaries for Windows, but for now, please use the installers
