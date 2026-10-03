@@ -1,0 +1,449 @@
+name: Windows Portable Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: windows-portable-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up MSYS2 CLANG64
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: CLANG64
+          update: true
+          install: >-
+            git
+            zip
+            mingw-w64-clang-x86_64-gmp
+            mingw-w64-clang-x86_64-cmake
+            mingw-w64-clang-x86_64-ninja
+            mingw-w64-clang-x86_64-clang
+            mingw-w64-clang-x86_64-opencv
+            mingw-w64-clang-x86_64-vulkan
+            mingw-w64-clang-x86_64-glm
+            mingw-w64-clang-x86_64-glfw
+
+      - name: Get ImGui
+        shell: msys2 {0}
+        run: |
+          if [ ! -d extern/imgui ]; then
+            mkdir -p extern
+            git clone --depth 1 https://github.com/ocornut/imgui extern/imgui
+          fi
+
+      - name: Configure
+        shell: msys2 {0}
+        run: |
+          cmake \
+            -S . \
+            -B build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_CXX_COMPILER=clang++
+
+      - name: Build
+        shell: msys2 {0}
+        run: |
+          cmake --build build --parallel
+
+      - name: Create portable folder structure
+        shell: msys2 {0}
+        run: |
+          set -e
+
+          PACKAGE="RFF-EXP-Windows"
+
+          rm -rf "$PACKAGE"
+
+          mkdir -p "$PACKAGE/bin"
+          mkdir -p "$PACKAGE/res"
+          mkdir -p "$PACKAGE/shaders"
+
+          echo "Finding RFF.exe..."
+
+          RFF_EXE="$(find build -type f -iname "RFF.exe" | head -n 1)"
+
+          if [ -z "$RFF_EXE" ]; then
+            echo "ERROR: Could not find RFF.exe"
+            echo
+            echo "All EXEs:"
+            find build -type f -iname "*.exe" -print
+            exit 1
+          fi
+
+          echo "Found:"
+          echo "$RFF_EXE"
+
+          cp "$RFF_EXE" "$PACKAGE/bin/RFF.exe"
+
+      - name: Copy resources
+        shell: msys2 {0}
+        run: |
+          PACKAGE="RFF-EXP-Windows"
+
+          if [ -d res ]; then
+            echo "Copying res/"
+            cp -r res/. "$PACKAGE/res/"
+          else
+            echo "WARNING: res/ folder does not exist"
+          fi
+
+          if [ -d shaders ]; then
+            echo "Copying shaders/"
+            cp -r shaders/. "$PACKAGE/shaders/"
+          else
+            echo "WARNING: shaders/ folder does not exist"
+          fi
+
+      - name: Copy RFF runtime files
+        shell: msys2 {0}
+        run: |
+          PACKAGE="RFF-EXP-Windows"
+
+          # Copy files that may have been generated into build/bin.
+          if [ -d build/bin ]; then
+            echo "Copying build/bin runtime files"
+
+            find build/bin \
+              -maxdepth 1 \
+              -type f \
+              ! -iname "RFF.exe" \
+              -exec cp {} "$PACKAGE/bin/" \;
+          fi
+
+          # Preserve backup/settings files if they exist in repository.
+          for file in \
+            backup.rfl \
+            backup.rfs \
+            imgui.ini
+          do
+            if [ -f "$file" ]; then
+              cp "$file" "$PACKAGE/bin/"
+            elif [ -f "bin/$file" ]; then
+              cp "bin/$file" "$PACKAGE/bin/"
+            elif [ -f "build/bin/$file" ]; then
+              cp "build/bin/$file" "$PACKAGE/bin/"
+            fi
+          done
+
+      - name: Copy DLL dependencies
+        shell: msys2 {0}
+        run: |
+          set -e
+
+          PACKAGE="RFF-EXP-Windows"
+          BIN="$PACKAGE/bin"
+
+          copy_dll()
+          {
+            dll="$1"
+
+            dll_lower="$(echo "$dll" | tr '[:upper:]' '[:lower:]')"
+
+            # DLLs provided by Windows itself.
+            case "$dll_lower" in
+              kernel32.dll|user32.dll|gdi32.dll|advapi32.dll|shell32.dll|\
+              ole32.dll|oleaut32.dll|ws2_32.dll|winmm.dll|comdlg32.dll|\
+              comctl32.dll|shlwapi.dll|rpcrt4.dll|version.dll|setupapi.dll|\
+              imm32.dll|dwmapi.dll|ntdll.dll|msvcrt.dll|bcrypt.dll|\
+              crypt32.dll|secur32.dll|iphlpapi.dll|wintrust.dll|\
+              uxtheme.dll|dbghelp.dll|psapi.dll|cfgmgr32.dll|\
+              normaliz.dll|dnsapi.dll|powrprof.dll|userenv.dll|\
+              cryptbase.dll|msasn1.dll|ncrypt.dll|bcryptprimitives.dll)
+                return
+                ;;
+            esac
+
+            # Already in package.
+            if find "$BIN" -maxdepth 1 -type f -iname "$dll" | grep -q .; then
+              return
+            fi
+
+            # Main CLANG64 location.
+            found="$(find /clang64/bin \
+              -maxdepth 1 \
+              -type f \
+              -iname "$dll" \
+              2>/dev/null \
+              | head -n 1)"
+
+            # Fallback MSYS2 location.
+            if [ -z "$found" ]; then
+              found="$(find /usr/bin \
+                -maxdepth 1 \
+                -type f \
+                -iname "$dll" \
+                2>/dev/null \
+                | head -n 1)"
+            fi
+
+            if [ -n "$found" ]; then
+              echo "Copying $dll"
+              cp "$found" "$BIN/"
+            else
+              echo "WARNING: Could not find $dll"
+            fi
+          }
+
+          scan_binary()
+          {
+            binary="$1"
+
+            echo "Scanning $binary"
+
+            objdump -p "$binary" 2>/dev/null \
+              | sed -n 's/^[[:space:]]*DLL Name: //p' \
+              | while read -r dll
+            do
+              copy_dll "$dll"
+            done
+          }
+
+          echo
+          echo "Scanning RFF.exe..."
+
+          scan_binary "$BIN/RFF.exe"
+
+          echo
+          echo "Recursively scanning DLLs..."
+
+          PREVIOUS_COUNT=-1
+
+          for pass in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
+          do
+            CURRENT_COUNT="$(find "$BIN" -maxdepth 1 -type f -iname "*.dll" | wc -l)"
+
+            if [ "$CURRENT_COUNT" = "$PREVIOUS_COUNT" ]; then
+              echo "Dependency list stabilized."
+              break
+            fi
+
+            PREVIOUS_COUNT="$CURRENT_COUNT"
+
+            echo
+            echo "Dependency scan pass $pass"
+            echo "Current DLL count: $CURRENT_COUNT"
+
+            while IFS= read -r -d '' dll
+            do
+              scan_binary "$dll"
+            done < <(
+              find "$BIN" \
+                -maxdepth 1 \
+                -type f \
+                -iname "*.dll" \
+                -print0
+            )
+          done
+
+      - name: Copy extra multimedia DLLs
+        shell: msys2 {0}
+        run: |
+          PACKAGE="RFF-EXP-Windows"
+          BIN="$PACKAGE/bin"
+
+          # RFF/OpenCV video support can load some libraries dynamically,
+          # meaning they may not appear directly in RFF.exe's import table.
+          #
+          # Copy common FFmpeg/OpenCV runtime libraries present in CLANG64.
+
+          patterns=(
+            "avcodec-*.dll"
+            "avdevice-*.dll"
+            "avfilter-*.dll"
+            "avformat-*.dll"
+            "avutil-*.dll"
+            "swresample-*.dll"
+            "swscale-*.dll"
+
+            "libopencv_*.dll"
+
+            "libavif-*.dll"
+            "libaom.dll"
+            "libdav1d-*.dll"
+            "librav1e.dll"
+            "libSvtAv1Enc-*.dll"
+            "libvpx-*.dll"
+
+            "libx264-*.dll"
+            "libx265-*.dll"
+            "xvidcore.dll"
+
+            "libmp3lame-*.dll"
+            "libopus-*.dll"
+            "libvorbis-*.dll"
+            "libvorbisenc-*.dll"
+            "libogg-*.dll"
+
+            "libopenjp2-*.dll"
+            "libopenjph-*.dll"
+            "libjpeg-*.dll"
+            "libpng*.dll"
+            "libtiff-*.dll"
+            "libwebp-*.dll"
+            "libwebpdemux-*.dll"
+            "libwebpmux-*.dll"
+
+            "libOpenEXR*.dll"
+            "libIex-*.dll"
+            "libIlmThread-*.dll"
+            "libImath-*.dll"
+          )
+
+          for pattern in "${patterns[@]}"
+          do
+            for file in /clang64/bin/$pattern
+            do
+              if [ -f "$file" ]; then
+                cp -n "$file" "$BIN/" || true
+              fi
+            done
+          done
+
+      - name: Rescan dependencies after extras
+        shell: msys2 {0}
+        run: |
+          PACKAGE="RFF-EXP-Windows"
+          BIN="$PACKAGE/bin"
+
+          copy_dll()
+          {
+            dll="$1"
+
+            dll_lower="$(echo "$dll" | tr '[:upper:]' '[:lower:]')"
+
+            case "$dll_lower" in
+              kernel32.dll|user32.dll|gdi32.dll|advapi32.dll|shell32.dll|\
+              ole32.dll|oleaut32.dll|ws2_32.dll|winmm.dll|comdlg32.dll|\
+              comctl32.dll|shlwapi.dll|rpcrt4.dll|version.dll|setupapi.dll|\
+              imm32.dll|dwmapi.dll|ntdll.dll|msvcrt.dll|bcrypt.dll|\
+              crypt32.dll|secur32.dll|iphlpapi.dll|wintrust.dll|\
+              uxtheme.dll|dbghelp.dll|psapi.dll|cfgmgr32.dll|\
+              normaliz.dll|dnsapi.dll|powrprof.dll|userenv.dll|\
+              cryptbase.dll|msasn1.dll|ncrypt.dll|bcryptprimitives.dll)
+                return
+                ;;
+            esac
+
+            if find "$BIN" -maxdepth 1 -type f -iname "$dll" | grep -q .; then
+              return
+            fi
+
+            found="$(find /clang64/bin /usr/bin \
+              -maxdepth 1 \
+              -type f \
+              -iname "$dll" \
+              2>/dev/null \
+              | head -n 1)"
+
+            if [ -n "$found" ]; then
+              echo "Copying dependency: $dll"
+              cp "$found" "$BIN/"
+            else
+              echo "WARNING: Missing dependency: $dll"
+            fi
+          }
+
+          PREVIOUS_COUNT=-1
+
+          for pass in 1 2 3 4 5 6 7 8 9 10
+          do
+            CURRENT_COUNT="$(find "$BIN" -maxdepth 1 -type f -iname "*.dll" | wc -l)"
+
+            if [ "$CURRENT_COUNT" = "$PREVIOUS_COUNT" ]; then
+              break
+            fi
+
+            PREVIOUS_COUNT="$CURRENT_COUNT"
+
+            while IFS= read -r -d '' file
+            do
+              objdump -p "$file" 2>/dev/null \
+                | sed -n 's/^[[:space:]]*DLL Name: //p' \
+                | while read -r dll
+              do
+                copy_dll "$dll"
+              done
+            done < <(
+              find "$BIN" \
+                -maxdepth 1 \
+                -type f \
+                \( -iname "*.dll" -o -iname "*.exe" \) \
+                -print0
+            )
+          done
+
+      - name: Create launcher
+        shell: msys2 {0}
+        run: |
+          cat > RFF-EXP-Windows/run_RFF-EXP.bat <<'EOF'
+          @echo off
+          setlocal
+          cd /d "%~dp0bin"
+          RFF.exe
+          if errorlevel 1 pause
+          EOF
+
+      - name: Show final package
+        shell: msys2 {0}
+        run: |
+          echo
+          echo "========================================"
+          echo "RFF-EXP portable package"
+          echo "========================================"
+          echo
+
+          echo "DLL count:"
+          find RFF-EXP-Windows/bin \
+            -maxdepth 1 \
+            -type f \
+            -iname "*.dll" \
+            | wc -l
+
+          echo
+          echo "Executables:"
+          find RFF-EXP-Windows \
+            -type f \
+            -iname "*.exe" \
+            -print
+
+          echo
+          echo "Top-level structure:"
+          find RFF-EXP-Windows \
+            -maxdepth 2 \
+            -type f \
+            -print \
+            | sort
+
+      - name: Create portable ZIP
+        shell: msys2 {0}
+        run: |
+          rm -f RFF-EXP-Windows.zip
+
+          zip -9 -r \
+            RFF-EXP-Windows.zip \
+            RFF-EXP-Windows
+
+          echo
+          echo "Created portable ZIP:"
+          ls -lh RFF-EXP-Windows.zip
+
+      - name: Upload portable ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: RFF-EXP-Windows-Portable
+          path: RFF-EXP-Windows.zip
+          if-no-files-found: error
+          retention-days: 30
