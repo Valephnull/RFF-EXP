@@ -30,7 +30,8 @@ jobs:
             mingw-w64-clang-x86_64-ninja
             mingw-w64-clang-x86_64-clang
             mingw-w64-clang-x86_64-opencv
-            mingw-w64-clang-x86_64-vulkan
+            mingw-w64-clang-x86_64-vulkan-loader
+            mingw-w64-clang-x86_64-vulkan-headers
             mingw-w64-clang-x86_64-glm
             mingw-w64-clang-x86_64-glfw
 
@@ -45,15 +46,26 @@ jobs:
       - name: Detect MSYS2 root
         shell: msys2 {0}
         run: |
-          echo "MSYS2 shell path:"
-          which bash
-
           MSYS2_ROOT="$(cygpath -m /)"
 
           echo "Detected MSYS2 root:"
           echo "$MSYS2_ROOT"
 
           echo "MSYS2_ROOT=$MSYS2_ROOT" >> "$GITHUB_ENV"
+
+      - name: Verify Vulkan
+        shell: msys2 {0}
+        run: |
+          echo "Checking Vulkan headers..."
+          ls /clang64/include/vulkan/vulkan.h
+
+          echo
+          echo "Checking Vulkan library..."
+          ls /clang64/lib/libvulkan-1.dll.a
+
+          echo
+          echo "Vulkan packages:"
+          pacman -Q | grep -i vulkan
 
       - name: Configure
         shell: msys2 {0}
@@ -66,7 +78,9 @@ jobs:
             -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_COMPILER=clang \
-            -DCMAKE_CXX_COMPILER=clang++
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DVulkan_INCLUDE_DIR=/clang64/include \
+            -DVulkan_LIBRARY=/clang64/lib/libvulkan-1.dll.a
 
       - name: Build
         shell: msys2 {0}
@@ -82,13 +96,12 @@ jobs:
             echo "ERROR: bin/RFF.exe was not created."
 
             echo
-            echo "All EXE files found:"
+            echo "All EXEs found:"
             find . -type f -iname "*.exe" -print
 
             exit 1
           fi
 
-          echo "Found:"
           ls -lh bin/RFF.exe
 
       - name: Create portable folder
@@ -138,7 +151,6 @@ jobs:
 
             dll_lower="$(echo "$dll" | tr '[:upper:]' '[:lower:]')"
 
-            # DLLs that come with Windows itself.
             case "$dll_lower" in
               kernel32.dll|user32.dll|gdi32.dll|advapi32.dll|shell32.dll|\
               ole32.dll|oleaut32.dll|ws2_32.dll|winmm.dll|comdlg32.dll|\
@@ -152,7 +164,6 @@ jobs:
                 ;;
             esac
 
-            # Already copied.
             if find "$BIN" \
               -maxdepth 1 \
               -type f \
@@ -284,6 +295,8 @@ jobs:
             "libIex-*.dll"
             "libIlmThread-*.dll"
             "libImath-*.dll"
+
+            "vulkan-1.dll"
           )
 
           for pattern in "${patterns[@]}"
