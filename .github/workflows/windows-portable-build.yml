@@ -42,9 +42,24 @@ jobs:
             git clone --depth 1 https://github.com/ocornut/imgui extern/imgui
           fi
 
+      - name: Detect MSYS2 root
+        shell: msys2 {0}
+        run: |
+          echo "MSYS2 shell path:"
+          which bash
+
+          MSYS2_ROOT="$(cygpath -m /)"
+
+          echo "Detected MSYS2 root:"
+          echo "$MSYS2_ROOT"
+
+          echo "MSYS2_ROOT=$MSYS2_ROOT" >> "$GITHUB_ENV"
+
       - name: Configure
         shell: msys2 {0}
         run: |
+          echo "MSYS2_ROOT=$MSYS2_ROOT"
+
           cmake \
             -S . \
             -B build \
@@ -58,7 +73,25 @@ jobs:
         run: |
           cmake --build build --parallel
 
-      - name: Create portable folder structure
+      - name: Verify RFF executable
+        shell: msys2 {0}
+        run: |
+          echo "Looking for RFF.exe..."
+
+          if [ ! -f bin/RFF.exe ]; then
+            echo "ERROR: bin/RFF.exe was not created."
+
+            echo
+            echo "All EXE files found:"
+            find . -type f -iname "*.exe" -print
+
+            exit 1
+          fi
+
+          echo "Found:"
+          ls -lh bin/RFF.exe
+
+      - name: Create portable folder
         shell: msys2 {0}
         run: |
           set -e
@@ -71,70 +104,23 @@ jobs:
           mkdir -p "$PACKAGE/res"
           mkdir -p "$PACKAGE/shaders"
 
-          echo "Finding RFF.exe..."
-
-          RFF_EXE="$(find build -type f -iname "RFF.exe" | head -n 1)"
-
-          if [ -z "$RFF_EXE" ]; then
-            echo "ERROR: Could not find RFF.exe"
-            echo
-            echo "All EXEs:"
-            find build -type f -iname "*.exe" -print
-            exit 1
-          fi
-
-          echo "Found:"
-          echo "$RFF_EXE"
-
-          cp "$RFF_EXE" "$PACKAGE/bin/RFF.exe"
-
-      - name: Copy resources
-        shell: msys2 {0}
-        run: |
-          PACKAGE="RFF-EXP-Windows"
+          cp bin/RFF.exe "$PACKAGE/bin/RFF.exe"
 
           if [ -d res ]; then
-            echo "Copying res/"
             cp -r res/. "$PACKAGE/res/"
-          else
-            echo "WARNING: res/ folder does not exist"
           fi
 
           if [ -d shaders ]; then
-            echo "Copying shaders/"
             cp -r shaders/. "$PACKAGE/shaders/"
-          else
-            echo "WARNING: shaders/ folder does not exist"
           fi
 
-      - name: Copy RFF runtime files
-        shell: msys2 {0}
-        run: |
-          PACKAGE="RFF-EXP-Windows"
-
-          # Copy files that may have been generated into build/bin.
-          if [ -d build/bin ]; then
-            echo "Copying build/bin runtime files"
-
-            find build/bin \
-              -maxdepth 1 \
-              -type f \
-              ! -iname "RFF.exe" \
-              -exec cp {} "$PACKAGE/bin/" \;
-          fi
-
-          # Preserve backup/settings files if they exist in repository.
           for file in \
             backup.rfl \
             backup.rfs \
             imgui.ini
           do
-            if [ -f "$file" ]; then
-              cp "$file" "$PACKAGE/bin/"
-            elif [ -f "bin/$file" ]; then
+            if [ -f "bin/$file" ]; then
               cp "bin/$file" "$PACKAGE/bin/"
-            elif [ -f "build/bin/$file" ]; then
-              cp "build/bin/$file" "$PACKAGE/bin/"
             fi
           done
 
@@ -152,7 +138,7 @@ jobs:
 
             dll_lower="$(echo "$dll" | tr '[:upper:]' '[:lower:]')"
 
-            # DLLs provided by Windows itself.
+            # DLLs that come with Windows itself.
             case "$dll_lower" in
               kernel32.dll|user32.dll|gdi32.dll|advapi32.dll|shell32.dll|\
               ole32.dll|oleaut32.dll|ws2_32.dll|winmm.dll|comdlg32.dll|\
@@ -166,12 +152,16 @@ jobs:
                 ;;
             esac
 
-            # Already in package.
-            if find "$BIN" -maxdepth 1 -type f -iname "$dll" | grep -q .; then
+            # Already copied.
+            if find "$BIN" \
+              -maxdepth 1 \
+              -type f \
+              -iname "$dll" \
+              | grep -q .
+            then
               return
             fi
 
-            # Main CLANG64 location.
             found="$(find /clang64/bin \
               -maxdepth 1 \
               -type f \
@@ -179,7 +169,6 @@ jobs:
               2>/dev/null \
               | head -n 1)"
 
-            # Fallback MSYS2 location.
             if [ -z "$found" ]; then
               found="$(find /usr/bin \
                 -maxdepth 1 \
@@ -211,34 +200,34 @@ jobs:
             done
           }
 
-          echo
-          echo "Scanning RFF.exe..."
-
           scan_binary "$BIN/RFF.exe"
-
-          echo
-          echo "Recursively scanning DLLs..."
 
           PREVIOUS_COUNT=-1
 
-          for pass in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
+          for pass in 1 2 3 4 5 6 7 8 9 10 11 12
           do
-            CURRENT_COUNT="$(find "$BIN" -maxdepth 1 -type f -iname "*.dll" | wc -l)"
+            CURRENT_COUNT="$(
+              find "$BIN" \
+                -maxdepth 1 \
+                -type f \
+                -iname "*.dll" \
+                | wc -l
+            )"
 
             if [ "$CURRENT_COUNT" = "$PREVIOUS_COUNT" ]; then
-              echo "Dependency list stabilized."
+              echo "Dependency scan stabilized."
               break
             fi
 
             PREVIOUS_COUNT="$CURRENT_COUNT"
 
             echo
-            echo "Dependency scan pass $pass"
+            echo "DLL dependency pass $pass"
             echo "Current DLL count: $CURRENT_COUNT"
 
-            while IFS= read -r -d '' dll
+            while IFS= read -r -d '' dllfile
             do
-              scan_binary "$dll"
+              scan_binary "$dllfile"
             done < <(
               find "$BIN" \
                 -maxdepth 1 \
@@ -248,16 +237,11 @@ jobs:
             )
           done
 
-      - name: Copy extra multimedia DLLs
+      - name: Copy multimedia runtime DLLs
         shell: msys2 {0}
         run: |
           PACKAGE="RFF-EXP-Windows"
           BIN="$PACKAGE/bin"
-
-          # RFF/OpenCV video support can load some libraries dynamically,
-          # meaning they may not appear directly in RFF.exe's import table.
-          #
-          # Copy common FFmpeg/OpenCV runtime libraries present in CLANG64.
 
           patterns=(
             "avcodec-*.dll"
@@ -271,9 +255,9 @@ jobs:
             "libopencv_*.dll"
 
             "libavif-*.dll"
-            "libaom.dll"
+            "libaom*.dll"
             "libdav1d-*.dll"
-            "librav1e.dll"
+            "librav1e*.dll"
             "libSvtAv1Enc-*.dll"
             "libvpx-*.dll"
 
@@ -312,7 +296,7 @@ jobs:
             done
           done
 
-      - name: Rescan dependencies after extras
+      - name: Rescan dependencies
         shell: msys2 {0}
         run: |
           PACKAGE="RFF-EXP-Windows"
@@ -337,7 +321,12 @@ jobs:
                 ;;
             esac
 
-            if find "$BIN" -maxdepth 1 -type f -iname "$dll" | grep -q .; then
+            if find "$BIN" \
+              -maxdepth 1 \
+              -type f \
+              -iname "$dll" \
+              | grep -q .
+            then
               return
             fi
 
@@ -360,7 +349,13 @@ jobs:
 
           for pass in 1 2 3 4 5 6 7 8 9 10
           do
-            CURRENT_COUNT="$(find "$BIN" -maxdepth 1 -type f -iname "*.dll" | wc -l)"
+            CURRENT_COUNT="$(
+              find "$BIN" \
+                -maxdepth 1 \
+                -type f \
+                -iname "*.dll" \
+                | wc -l
+            )"
 
             if [ "$CURRENT_COUNT" = "$PREVIOUS_COUNT" ]; then
               break
@@ -401,10 +396,14 @@ jobs:
         run: |
           echo
           echo "========================================"
-          echo "RFF-EXP portable package"
+          echo "RFF-EXP portable build"
           echo "========================================"
-          echo
 
+          echo
+          echo "Executable:"
+          ls -lh RFF-EXP-Windows/bin/RFF.exe
+
+          echo
           echo "DLL count:"
           find RFF-EXP-Windows/bin \
             -maxdepth 1 \
@@ -413,16 +412,9 @@ jobs:
             | wc -l
 
           echo
-          echo "Executables:"
+          echo "Package contents:"
           find RFF-EXP-Windows \
-            -type f \
-            -iname "*.exe" \
-            -print
-
-          echo
-          echo "Top-level structure:"
-          find RFF-EXP-Windows \
-            -maxdepth 2 \
+            -maxdepth 3 \
             -type f \
             -print \
             | sort
@@ -437,7 +429,7 @@ jobs:
             RFF-EXP-Windows
 
           echo
-          echo "Created portable ZIP:"
+          echo "Created:"
           ls -lh RFF-EXP-Windows.zip
 
       - name: Upload portable ZIP
