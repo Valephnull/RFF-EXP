@@ -14,6 +14,686 @@ jobs:
     runs-on: windows-latest
 
     steps:
+      # ------------------------------------------------------------
+      # Get RFF-EXP
+      # ------------------------------------------------------------
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+
+      # ------------------------------------------------------------
+      # Install MSYS2 / CLANG64 dependencies
+      # ------------------------------------------------------------
+
+      - name: Set up MSYS2 CLANG64
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: CLANG64
+          update: true
+          install: >-
+            git
+            zip
+            mingw-w64-clang-x86_64-gmp
+            mingw-w64-clang-x86_64-cmake
+            mingw-w64-clang-x86_64-ninja
+            mingw-w64-clang-x86_64-clang
+            mingw-w64-clang-x86_64-opencv
+            mingw-w64-clang-x86_64-vulkan-loader
+            mingw-w64-clang-x86_64-vulkan-headers
+            mingw-w64-clang-x86_64-glm
+            mingw-w64-clang-x86_64-glfw
+            mingw-w64-clang-x86_64-ntldd
+
+
+      # ------------------------------------------------------------
+      # Make sure ImGui exists
+      # ------------------------------------------------------------
+
+      - name: Get ImGui
+        shell: msys2 {0}
+        run: |
+          if [ ! -d extern/imgui ]; then
+            echo "Downloading ImGui..."
+
+            mkdir -p extern
+
+            git clone \
+              --depth 1 \
+              https://github.com/ocornut/imgui \
+              extern/imgui
+          else
+            echo "ImGui already exists."
+          fi
+
+
+      # ------------------------------------------------------------
+      # RFF's CMakeLists.txt specifically requires MSYS2_ROOT
+      # ------------------------------------------------------------
+
+      - name: Detect MSYS2 root
+        shell: msys2 {0}
+        run: |
+          MSYS2_ROOT="$(cygpath -m /)"
+
+          echo "Detected MSYS2 root:"
+          echo "$MSYS2_ROOT"
+
+          echo "MSYS2_ROOT=$MSYS2_ROOT" >> "$GITHUB_ENV"
+
+
+      # ------------------------------------------------------------
+      # Quick sanity check before CMake
+      # ------------------------------------------------------------
+
+      - name: Verify build dependencies
+        shell: msys2 {0}
+        run: |
+          echo "MSYS2_ROOT:"
+          echo "$MSYS2_ROOT"
+
+          echo
+          echo "Clang:"
+          clang --version
+
+          echo
+          echo "CMake:"
+          cmake --version
+
+          echo
+          echo "Ninja:"
+          ninja --version
+
+          echo
+          echo "Vulkan header:"
+          ls -l /clang64/include/vulkan/vulkan.h
+
+          echo
+          echo "Vulkan library:"
+          ls -l /clang64/lib/libvulkan-1.dll.a
+
+          echo
+          echo "ntldd:"
+          which ntldd
+
+
+      # ------------------------------------------------------------
+      # Configure RFF
+      # ------------------------------------------------------------
+
+      - name: Configure
+        shell: msys2 {0}
+        run: |
+          echo "MSYS2_ROOT=$MSYS2_ROOT"
+
+          cmake \
+            -S . \
+            -B build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DVulkan_INCLUDE_DIR=/clang64/include \
+            -DVulkan_LIBRARY=/clang64/lib/libvulkan-1.dll.a
+
+
+      # ------------------------------------------------------------
+      # Compile
+      # ------------------------------------------------------------
+
+      - name: Build
+        shell: msys2 {0}
+        run: |
+          cmake \
+            --build build \
+            --parallel
+
+
+      # ------------------------------------------------------------
+      # RFF's CMakeLists puts RFF.exe in repo/bin,
+      # NOT build/bin.
+      # ------------------------------------------------------------
+
+      - name: Verify RFF executable
+        shell: msys2 {0}
+        run: |
+          echo "Checking for bin/RFF.exe..."
+
+          if [ ! -f bin/RFF.exe ]; then
+            echo
+            echo "ERROR: RFF.exe was not created."
+            echo
+            echo "EXEs found in repository:"
+            find . -type f -iname "*.exe" -print
+
+            exit 1
+          fi
+
+          echo
+          echo "RFF.exe:"
+          ls -lh bin/RFF.exe
+
+
+      # ------------------------------------------------------------
+      # Create the portable directory
+      #
+      # RFF-EXP-Windows/
+      #   bin/
+      #   res/
+      #   shaders/
+      # ------------------------------------------------------------
+
+      - name: Create portable folder
+        shell: msys2 {0}
+        run: |
+          set -e
+
+          PACKAGE="RFF-EXP-Windows"
+
+          rm -rf "$PACKAGE"
+
+          mkdir -p "$PACKAGE/bin"
+          mkdir -p "$PACKAGE/res"
+          mkdir -p "$PACKAGE/shaders"
+
+          echo "Copying RFF.exe..."
+
+          cp \
+            bin/RFF.exe \
+            "$PACKAGE/bin/RFF.exe"
+
+          echo
+          echo "Copying resources..."
+
+          if [ -d res ]; then
+            cp -r res/. "$PACKAGE/res/"
+          else
+            echo "WARNING: res/ does not exist."
+          fi
+
+          echo
+          echo "Copying shaders..."
+
+          if [ -d shaders ]; then
+            cp -r shaders/. "$PACKAGE/shaders/"
+          else
+            echo "WARNING: shaders/ does not exist."
+          fi
+
+          echo
+          echo "Copying optional runtime files..."
+
+          for file in \
+            backup.rfl \
+            backup.rfs \
+            imgui.ini
+          do
+            if [ -f "bin/$file" ]; then
+              echo "Copying bin/$file"
+              cp "bin/$file" "$PACKAGE/bin/"
+            fi
+          done
+
+
+      # ------------------------------------------------------------
+      # FAST dependency collection
+      #
+      # ntldd recursively checks RFF.exe and returns its DLL tree.
+      #
+      # This replaces the old process that repeatedly scanned
+      # every DLL for up to 10-12 passes.
+      # ------------------------------------------------------------
+
+      - name: Find DLL dependencies
+        shell: msys2 {0}
+        run: |
+          set -e
+
+          PACKAGE="RFF-EXP-Windows"
+          BIN="$PACKAGE/bin"
+
+          echo "Finding recursive dependencies with ntldd..."
+          echo
+
+          ntldd -R "$BIN/RFF.exe" \
+            > dependencies.txt \
+            2>&1 || true
+
+          cat dependencies.txt
+
+
+      # ------------------------------------------------------------
+      # Copy the DLLs that ntldd found
+      # ------------------------------------------------------------
+
+      - name: Copy DLL dependencies
+        shell: msys2 {0}
+        run: |
+          set -e
+
+          PACKAGE="RFF-EXP-Windows"
+          BIN="$PACKAGE/bin"
+
+          copied=0
+
+          echo "Copying CLANG64 runtime dependencies..."
+          echo
+
+          # Pull all DLL names from ntldd's output.
+          grep -Eoi '[A-Za-z0-9._+-]+\.dll' dependencies.txt \
+            | sort -fu \
+            > dll-list.txt || true
+
+          echo "DLLs reported by ntldd:"
+          cat dll-list.txt || true
+
+          echo
+          echo "Copying..."
+
+          while IFS= read -r dll
+          do
+            [ -z "$dll" ] && continue
+
+            dll_lower="$(
+              echo "$dll" |
+              tr '[:upper:]' '[:lower:]'
+            )"
+
+            # ----------------------------------------------------
+            # These are provided by Windows itself.
+            # They should NOT be distributed with RFF.
+            # ----------------------------------------------------
+
+            case "$dll_lower" in
+              api-ms-win-*|\
+              ext-ms-win-*|\
+              kernel32.dll|\
+              kernelbase.dll|\
+              ntdll.dll|\
+              user32.dll|\
+              gdi32.dll|\
+              gdi32full.dll|\
+              advapi32.dll|\
+              shell32.dll|\
+              ole32.dll|\
+              oleaut32.dll|\
+              ws2_32.dll|\
+              wsock32.dll|\
+              winmm.dll|\
+              comdlg32.dll|\
+              comctl32.dll|\
+              shlwapi.dll|\
+              rpcrt4.dll|\
+              version.dll|\
+              setupapi.dll|\
+              imm32.dll|\
+              dwmapi.dll|\
+              msvcrt.dll|\
+              ucrtbase.dll|\
+              bcrypt.dll|\
+              bcryptprimitives.dll|\
+              crypt32.dll|\
+              cryptbase.dll|\
+              secur32.dll|\
+              iphlpapi.dll|\
+              wintrust.dll|\
+              uxtheme.dll|\
+              dbghelp.dll|\
+              psapi.dll|\
+              cfgmgr32.dll|\
+              normaliz.dll|\
+              dnsapi.dll|\
+              powrprof.dll|\
+              userenv.dll|\
+              msasn1.dll|\
+              ncrypt.dll|\
+              avrt.dll|\
+              opengl32.dll)
+                continue
+                ;;
+            esac
+
+            # Already there?
+            if find "$BIN" \
+              -maxdepth 1 \
+              -type f \
+              -iname "$dll" \
+              | grep -q .
+            then
+              continue
+            fi
+
+            # CLANG64 is where basically all of our runtime DLLs
+            # should come from.
+            found="$(
+              find /clang64/bin \
+                -maxdepth 1 \
+                -type f \
+                -iname "$dll" \
+                -print \
+                -quit \
+                2>/dev/null
+            )"
+
+            if [ -n "$found" ]; then
+              echo "  + $dll"
+
+              cp \
+                "$found" \
+                "$BIN/"
+
+              copied=$((copied + 1))
+            else
+              echo "  ? $dll not found in /clang64/bin"
+            fi
+
+          done < dll-list.txt
+
+          echo
+          echo "Copied $copied dependency DLLs."
+
+
+      # ------------------------------------------------------------
+      # OpenCV can dynamically load parts of its video/image stack.
+      #
+      # These don't always appear directly in RFF.exe's import tree,
+      # so include the main components RFF actually uses.
+      #
+      # This is intentionally MUCH smaller than before.
+      # ------------------------------------------------------------
+
+      - name: Copy OpenCV and FFmpeg runtime
+        shell: msys2 {0}
+        run: |
+          set -e
+
+          BIN="RFF-EXP-Windows/bin"
+
+          patterns=(
+            "libopencv_core-*.dll"
+            "libopencv_imgproc-*.dll"
+            "libopencv_imgcodecs-*.dll"
+            "libopencv_videoio-*.dll"
+
+            "avcodec-*.dll"
+            "avformat-*.dll"
+            "avutil-*.dll"
+            "swscale-*.dll"
+            "swresample-*.dll"
+          )
+
+          echo "Copying dynamic multimedia libraries..."
+          echo
+
+          for pattern in "${patterns[@]}"
+          do
+            for file in /clang64/bin/$pattern
+            do
+              if [ -f "$file" ]; then
+                name="$(basename "$file")"
+
+                if [ ! -f "$BIN/$name" ]; then
+                  echo "  + $name"
+                  cp "$file" "$BIN/"
+                fi
+              fi
+            done
+          done
+
+
+      # ------------------------------------------------------------
+      # The few multimedia DLLs we just added may themselves need
+      # dependencies.
+      #
+      # Run ONE additional ntldd pass over the final directory.
+      #
+      # This is still dramatically faster than repeatedly scanning
+      # the entire directory over and over.
+      # ------------------------------------------------------------
+
+      - name: Resolve final DLL dependencies
+        shell: msys2 {0}
+        run: |
+          set -e
+
+          BIN="RFF-EXP-Windows/bin"
+
+          echo "Doing one final dependency pass..."
+          echo
+
+          > final-dependencies.txt
+
+          while IFS= read -r -d '' file
+          do
+            echo "Checking $(basename "$file")"
+
+            ntldd "$file" \
+              >> final-dependencies.txt \
+              2>/dev/null || true
+
+          done < <(
+            find "$BIN" \
+              -maxdepth 1 \
+              -type f \
+              \( -iname "*.exe" -o -iname "*.dll" \) \
+              -print0
+          )
+
+          grep -Eoi '[A-Za-z0-9._+-]+\.dll' \
+            final-dependencies.txt \
+            | sort -fu \
+            > final-dll-list.txt || true
+
+          echo
+          echo "Checking for additional CLANG64 DLLs..."
+
+          while IFS= read -r dll
+          do
+            [ -z "$dll" ] && continue
+
+            dll_lower="$(
+              echo "$dll" |
+              tr '[:upper:]' '[:lower:]'
+            )"
+
+            case "$dll_lower" in
+              api-ms-win-*|\
+              ext-ms-win-*|\
+              kernel32.dll|\
+              kernelbase.dll|\
+              ntdll.dll|\
+              user32.dll|\
+              gdi32.dll|\
+              gdi32full.dll|\
+              advapi32.dll|\
+              shell32.dll|\
+              ole32.dll|\
+              oleaut32.dll|\
+              ws2_32.dll|\
+              wsock32.dll|\
+              winmm.dll|\
+              comdlg32.dll|\
+              comctl32.dll|\
+              shlwapi.dll|\
+              rpcrt4.dll|\
+              version.dll|\
+              setupapi.dll|\
+              imm32.dll|\
+              dwmapi.dll|\
+              msvcrt.dll|\
+              ucrtbase.dll|\
+              bcrypt.dll|\
+              bcryptprimitives.dll|\
+              crypt32.dll|\
+              cryptbase.dll|\
+              secur32.dll|\
+              iphlpapi.dll|\
+              wintrust.dll|\
+              uxtheme.dll|\
+              dbghelp.dll|\
+              psapi.dll|\
+              cfgmgr32.dll|\
+              normaliz.dll|\
+              dnsapi.dll|\
+              powrprof.dll|\
+              userenv.dll|\
+              msasn1.dll|\
+              ncrypt.dll|\
+              avrt.dll|\
+              opengl32.dll)
+                continue
+                ;;
+            esac
+
+            if find "$BIN" \
+              -maxdepth 1 \
+              -type f \
+              -iname "$dll" \
+              | grep -q .
+            then
+              continue
+            fi
+
+            found="$(
+              find /clang64/bin \
+                -maxdepth 1 \
+                -type f \
+                -iname "$dll" \
+                -print \
+                -quit \
+                2>/dev/null
+            )"
+
+            if [ -n "$found" ]; then
+              echo "  + $dll"
+              cp "$found" "$BIN/"
+            fi
+
+          done < final-dll-list.txt
+
+
+      # ------------------------------------------------------------
+      # Vulkan loader
+      #
+      # Normally Windows gets Vulkan from the GPU driver.
+      # Don't package a random Vulkan implementation.
+      #
+      # RFF should use the system's vulkan-1.dll.
+      # ------------------------------------------------------------
+
+      - name: Check Vulkan dependency
+        shell: msys2 {0}
+        run: |
+          echo "RFF uses the system Vulkan loader."
+          echo
+          echo "vulkan-1.dll should normally be provided by the"
+          echo "installed NVIDIA / AMD / Intel Vulkan driver."
+
+
+      # ------------------------------------------------------------
+      # Launcher
+      # ------------------------------------------------------------
+
+      - name: Create launcher
+        shell: msys2 {0}
+        run: |
+          cat > RFF-EXP-Windows/run_RFF-EXP.bat <<'EOF'
+          @echo off
+          setlocal
+          cd /d "%~dp0bin"
+          RFF.exe
+          if errorlevel 1 pause
+          EOF
+
+
+      # ------------------------------------------------------------
+      # Show useful info
+      # ------------------------------------------------------------
+
+      - name: Show final package
+        shell: msys2 {0}
+        run: |
+          echo
+          echo "================================================"
+          echo "RFF-EXP portable package"
+          echo "================================================"
+
+          echo
+          echo "Executable:"
+          ls -lh RFF-EXP-Windows/bin/RFF.exe
+
+          echo
+          echo "DLL count:"
+          find RFF-EXP-Windows/bin \
+            -maxdepth 1 \
+            -type f \
+            -iname "*.dll" \
+            | wc -l
+
+          echo
+          echo "Package size:"
+          du -sh RFF-EXP-Windows
+
+          echo
+          echo "bin/ contents:"
+          find RFF-EXP-Windows/bin \
+            -maxdepth 1 \
+            -type f \
+            -printf "%f\n" \
+            | sort
+
+
+      # ------------------------------------------------------------
+      # ZIP
+      #
+      # Use normal compression instead of maximum (-9).
+      # DLLs/executables don't compress massively better at -9,
+      # and this is faster.
+      # ------------------------------------------------------------
+
+      - name: Create portable ZIP
+        shell: msys2 {0}
+        run: |
+          rm -f RFF-EXP-Windows.zip
+
+          echo "Creating ZIP..."
+
+          zip \
+            -r \
+            RFF-EXP-Windows.zip \
+            RFF-EXP-Windows
+
+          echo
+          echo "Created:"
+          ls -lh RFF-EXP-Windows.zip
+
+
+      # ------------------------------------------------------------
+      # Upload
+      # ------------------------------------------------------------
+
+      - name: Upload portable ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: RFF-EXP-Windows-Portable
+          path: RFF-EXP-Windows.zip
+          if-no-files-found: error
+          retention-days: 30name: Windows Portable Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: windows-portable-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
