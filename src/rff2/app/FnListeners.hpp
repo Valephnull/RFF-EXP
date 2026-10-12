@@ -4,6 +4,7 @@
 
 #pragma once
 #include <cstdint>
+#include <functional>
 #include <type_traits>
 
 namespace merutilm::rff2::FnListeners {
