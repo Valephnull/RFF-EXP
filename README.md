@@ -12,10 +12,8 @@ Currently, I have added:
 * Auto Exploration menu - basically Fractal eXtreme's menu but better, and with more features
 * Autosave - If a crash happens, you can get back to that location next time you launch RFF-EXP
 * Render Pool - Render RFF keyframe sequences on multiple computers
-* Settings files (`.rfc`) and shader/color presets (`.rfsp`), inspired by RFF_Super
+* Settings files (`.rfc`) and shader/color presets (`.rfsp`), from RFF_Super
 
 ## Installation
 
-Run `installer_windows.bat` as Administrator on Windows, or run `./installer_linux_ubuntu.sh` on Ubuntu 24.04 or newer
-
-I am working on a GitHub Actions script to provide pre-built binaries for Windows, but for now, please use the installers
+On Windows, download the latest Actions build, or run `installer_windows.bat` as Administrator, or run `./installer_linux_ubuntu.sh` on Ubuntu 24.04 or newer
