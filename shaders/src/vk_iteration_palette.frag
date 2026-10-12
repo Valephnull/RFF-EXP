@@ -7,7 +7,7 @@
 #define DESC_TIME 2
 #define DESC_BATCH_RESULT 3
 #define DESC_SMOOTH_ZOOM 4
-#define DESC_SAMPLING 5
+#define DESC_SAMPLING 6
 
 // include descriptors
 #include <desc_iteration.glsl>
@@ -22,6 +22,9 @@
 #include <utils_palette.glsl>
 #include <utils_iteration_sampling.glsl>
 
+layout (set = 5, binding = 1) writeonly buffer SnapshotSSBO {
+    double iterations[];
+} snapshot_settings;
 
 layout (location = 0) in vec3 fragColor;
 layout (location = 1) in vec2 fragTexcoord;

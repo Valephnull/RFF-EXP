@@ -30,6 +30,9 @@ jobs:
             mingw-w64-clang-x86_64-ninja
             mingw-w64-clang-x86_64-clang
             mingw-w64-clang-x86_64-opencv
+            mingw-w64-clang-x86_64-ffmpeg
+            mingw-w64-clang-x86_64-openssl
+            mingw-w64-clang-x86_64-shaderc
             mingw-w64-clang-x86_64-vulkan-loader
             mingw-w64-clang-x86_64-vulkan-headers
             mingw-w64-clang-x86_64-glm
@@ -89,12 +92,18 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_COMPILER=clang \
             -DCMAKE_CXX_COMPILER=clang++ \
+            -DRFF_NATIVE_OPTIMIZATIONS=OFF \
             -DVulkan_INCLUDE_DIR=/clang64/include \
             -DVulkan_LIBRARY=/clang64/lib/libvulkan-1.dll.a
 
       - name: Build
         shell: msys2 {0}
         run: |
+          if grep -F -- '-march=native' build/build.ninja; then
+            echo "ERROR: portable build is still targeting the runner's CPU."
+            exit 1
+          fi
+
           cmake \
             --build build \
             --parallel
@@ -145,13 +154,6 @@ jobs:
             -iname "*.dll" \
             -exec cp {} "$PACKAGE/bin/" \;
 
-          # vulkan_helper may end up somewhere under build/ depending
-          # on how CMake treats a Windows SHARED library.
-          find build \
-            -type f \
-            -iname "*vulkan_helper*.dll" \
-            -exec cp {} "$PACKAGE/bin/" \;
-
           echo
           echo "RFF-built DLLs copied:"
           find "$PACKAGE/bin" \
@@ -183,32 +185,14 @@ jobs:
             fi
           done
 
-      - name: Verify vulkan_helper
+      - name: Verify static vulkan_helper
         shell: msys2 {0}
         run: |
-          echo "Checking for vulkan_helper..."
-
-          if ! find RFF-EXP-Windows/bin \
-            -maxdepth 1 \
-            -type f \
-            -iname "*vulkan_helper*.dll" \
-            | grep -q .
-          then
-            echo "ERROR: libvulkan_helper.dll was not packaged."
-
-            echo
-            echo "Searching entire repository/build:"
-            find . -type f -iname "*vulkan_helper*" -print
-
+          if [ ! -f build/src/vulkan_helper/libvulkan_helper.a ]; then
+            echo "ERROR: the static vulkan_helper library was not built."
             exit 1
           fi
-
-          echo "Found:"
-          find RFF-EXP-Windows/bin \
-            -maxdepth 1 \
-            -type f \
-            -iname "*vulkan_helper*.dll" \
-            -print
+          ls -lh build/src/vulkan_helper/libvulkan_helper.a
 
       - name: Find DLL dependencies
         shell: msys2 {0}
@@ -310,6 +294,11 @@ jobs:
               msasn1.dll|\
               ncrypt.dll|\
               avrt.dll|\
+              avicap32.dll|\
+              dwrite.dll|\
+              gdiplus.dll|\
+              msimg32.dll|\
+              usp10.dll|\
               opengl32.dll|\
               vulkan-1.dll)
                 continue
@@ -382,6 +371,7 @@ jobs:
             "avutil-*.dll"
             "swscale-*.dll"
             "swresample-*.dll"
+            "xvidcore.dll"
           )
 
           echo "Copying dynamic multimedia libraries..."
@@ -484,6 +474,11 @@ jobs:
               msasn1.dll|\
               ncrypt.dll|\
               avrt.dll|\
+              avicap32.dll|\
+              dwrite.dll|\
+              gdiplus.dll|\
+              msimg32.dll|\
+              usp10.dll|\
               opengl32.dll|\
               vulkan-1.dll)
                 continue
@@ -536,11 +531,11 @@ jobs:
           echo "========================================"
 
           echo
-          echo "RFF-owned binaries:"
+          echo "RFF executable:"
           find RFF-EXP-Windows/bin \
             -maxdepth 1 \
             -type f \
-            \( -iname "RFF.exe" -o -iname "*vulkan_helper*.dll" \) \
+            -iname "RFF.exe" \
             -printf "%f\n"
 
           echo

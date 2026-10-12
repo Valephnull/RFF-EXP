@@ -23,6 +23,7 @@
 #include "ComputeShaderRenderManager.hpp"
 #include "CrashRecovery.hpp"
 #include "CursorManager.hpp"
+#include "MultithreadedRenderManager.hpp"
 #include "RFF2Renderer.hpp"
 #include "UpdateRequests.hpp"
 #include "VideoKeyframeProgressInfo.hpp"
@@ -65,22 +66,24 @@ namespace merutilm::rff2 {
 
         ParallelRenderState state = {};
 
-        Settings settings;
+        Settings settings = genDefaultSettings();
         UpdateRequests requests = {};
         RFF2Renderer *renderer = nullptr;
 
 
-        std::atomic<bool> canShowPreview = false;
         std::atomic<bool> lastRenderSucceeded = false;
         std::atomic<uint64_t> completedRenderCount = 0;
         std::atomic<bool> navigationLocked = false;
         std::atomic<bool> unlockNavigationAfterRender = false;
+        std::atomic<bool> recomputeFirstRefresh = false;
+        std::atomic<bool> updateFractalFrame = false;
 
         std::array<std::string, Constants::Status::LENGTH> statusMessages = {};
         mutable std::shared_mutex renderDataMutex;
         std::unique_ptr<MB2RenderDataBase> renderData = nullptr;
-        std::unique_ptr<ApproxTableCacheBase> approxTableCache = nullptr;
+        std::unique_ptr<ApproxTableCache> approxTableCache = nullptr;
         std::unique_ptr<CursorManager> cursorManager = nullptr;
+        std::unique_ptr<MultithreadedRenderManager> multithreadedManager = nullptr;
         std::unique_ptr<ComputeShaderRenderManager> computeShaderManager = nullptr;
 
         ZoomAnimationInfo zoomAnimationInfo;
@@ -110,7 +113,8 @@ namespace merutilm::rff2 {
         double wheelZoomLastInputTime = -1;
 
     public:
-        explicit RFF2(const vkh::WindowInitializerSettings &wic) : Application(wic), settings(genDefaultSettings()) {}
+        explicit RFF2(vkh::ApplicationCreateInfo info, vkh::WindowInitializerSettings wic) :
+            Application(std::move(info), std::move(wic)) {}
 
         ~RFF2() override { stopGuidedZoomSearchWorker(); }
 
@@ -196,12 +200,14 @@ namespace merutilm::rff2 {
         void matchSettingsAfterCreatingRenderData(Settings &s) const;
 
         bool prepareRenderData(double startTime, const Settings &s);
+        void loadSnapshot() const;
 
 
         template<Number Num, Number Other>
         void fillIterationComputeShader(double startTime, const Settings &s);
 
         void fillIterationMultithreaded(double startTime, const Settings &s);
+
         bool fillIteration(double startTime, const Settings &s);
 
         void afterComputeFinally(bool success);
@@ -222,7 +228,7 @@ namespace merutilm::rff2 {
 
         [[nodiscard]] std::unique_ptr<MB2RenderDataBase> &getCurrentRenderDataOwnRef() { return renderData; }
 
-        [[nodiscard]] std::unique_ptr<ApproxTableCacheBase> *getApproxTableCache() { return &approxTableCache; }
+        [[nodiscard]] ApproxTableCache &getApproxTableCache() const { return *approxTableCache; }
 
         [[nodiscard]] UpdateRequests &getRequests() { return requests; }
 
@@ -238,9 +244,9 @@ namespace merutilm::rff2 {
             return {renderData->fractalSettings.general.logZoom,
                     renderData->getReference()->longestPeriod(),
                     renderData->fractalSettings.perturb.maxIteration,
-                    renderer->visibleIterationBufferContext->getData(),
-                    renderer->visibleIterationBufferContext->getWidth(),
-                    renderer->visibleIterationBufferContext->getHeight()};
+                    renderer->visibleIterationBufferData->getData(),
+                    renderer->visibleIterationBufferData->getWidth(),
+                    renderer->visibleIterationBufferData->getHeight()};
         }
 
         struct IterationSnapshot {
@@ -258,9 +264,9 @@ namespace merutilm::rff2 {
         };
 
         [[nodiscard]] IterationSnapshot getIterationSnapshot() const {
-            if (!renderer || !renderer->visibleIterationBufferContext)
+            if (!renderer || !renderer->visibleIterationBufferData)
                 return {};
-            auto &buffer = *renderer->visibleIterationBufferContext;
+            auto &buffer = *renderer->visibleIterationBufferData;
             return {buffer.getWidth(), buffer.getHeight(), buffer.getData()};
         }
 
@@ -315,15 +321,14 @@ namespace merutilm::rff2 {
         void onQuit();
         void resolveRequests();
 
-        std::unique_ptr<MB2RenderDataBase> createAppropriateRenderData(bool computeShader, double logZoomTest,
-                                                                       double startTime, const FractalSettings &frt,
-                                                                       dex dcMax, int64_t exp10,
-                                                                       uint64_t refInitialCapacity);
+        [[nodiscard]] std::unique_ptr<MB2RenderDataBase>
+        createAppropriateRenderData(bool computeShader, double logZoomTest, double startTime,
+                                    const FractalSettings &frt, dex dcMax, int64_t exp10, uint64_t refInitialCapacity);
 
 
-        VideoKeyframeProgressInfo &getKeyframeProgressInfo() { return videoKeyframeProgressInfo; }
+        [[nodiscard]] VideoKeyframeProgressInfo &getKeyframeProgressInfo() { return videoKeyframeProgressInfo; }
 
-        VideoProgressInfo &getVideoProgressInfo() { return videoProgressInfo; }
+        [[nodiscard]] VideoProgressInfo &getVideoProgressInfo() { return videoProgressInfo; }
 
 
         auto getFnFindingMBCenter(double startTime);
@@ -357,7 +362,7 @@ namespace merutilm::rff2 {
 
         const uint32_t width = getIterationBufferWidth();
         const uint32_t height = getIterationBufferHeight();
-        const VkExtent2D extent{width, height};
+        const VkExtent2D extent{.width = width, .height = height};
 
         CPCIterate<Num> *target = std::is_same_v<Num, float>
                                           ? dynamic_cast<CPCIterate<Num> *>(renderer->computeIterateFloat)
@@ -368,18 +373,17 @@ namespace merutilm::rff2 {
 
         vkh::CommandPool &commandPool = *computeShaderManager->commandPool;
 
-        const auto cache = dynamic_cast<ApproxTableCache<Num> *>(approxTableCache.get());
-        if (!cache)
-            throw vkh::exception_invalid_state("cache is null");
-
-        const auto &tableData = cache->mpaTable;
-        const auto &mapperData = cache->flattenIndexMapper;
+        renderer->descriptorStorage->renderMetaIteration->resetIterationBuffer(commandPool, width, height);
+        renderer->computeIterateFloat->resizeWriteBuffer(commandPool, width, height);
+        renderer->computeIterateFex->resizeWriteBuffer(commandPool, width, height);
+        const auto &tableData = approxTableCache->mpaTable;
+        const auto &mapperData = approxTableCache->flattenIndexMapper;
 
         other->clearMeta(commandPool);
         target->setMPAIgnore(s.render.computeShader.completelyIgnoreMpa);
         target->setBatchSize(Constants::Render::COMPUTE_SHADER_INIT_BATCH_SIZE);
         target->clearWriteBuffer(commandPool);
-        target->setMeta(s.fractal, s.render, dynamic_cast<MB2Reference<Num> *>(renderData->getReference())->refOrbit,
+        target->setMeta(s.fractal, s.render, dynamic_cast<MB2Reference<Num> *>(renderData->getReference())->refOrbit, renderData->getReference()->longestPeriod(),
                         static_cast<complex<Num>>(renderData->getPerturbator()->off), s.fractal.perturb.maxIteration,
                         tableData, mapperData, commandPool);
 
@@ -391,7 +395,7 @@ namespace merutilm::rff2 {
         }
 
         const vkh::BufferContext &iterResultCtx =
-                renderer->descriptorStorage->renderMetaIterationVariant->getResultIterationBuffer();
+                renderer->descriptorStorage->renderMetaIteration->getResultIterationBuffer();
         const vkh::BufferContext &batchResultCtx = renderer->descriptorStorage->batchResult->getBatchResultBuffer();
         computeShaderManager->tryCreateOrResizeTransferDstBuffer(batchResultCtx, iterResultCtx, extent);
 
@@ -493,13 +497,13 @@ namespace merutilm::rff2 {
 
 
             memcpy(stagingData.data(), dstBatchBuffer.mappedMemory, dstBatchBuffer.bufferSize);
-            memcpy(renderer->visibleIterationBufferContext->getData().data(), dstIterBuffer.mappedMemory,
+            memcpy(renderer->visibleIterationBufferData->getData().data(), dstIterBuffer.mappedMemory,
                    dstIterBuffer.bufferSize);
 
             glitches = std::ranges::count_if(stagingData, [](const uint32_t data) { return data != 1; });
 
-            renderer->visibleIterationBufferContext->markUpdate();
-            canShowPreview = true;
+            renderer->visibleIterationBufferData->markUpdate();
+            updateFractalFrame = true;
         } // batching and checking scope
     }
 
@@ -543,8 +547,8 @@ namespace merutilm::rff2 {
             if constexpr (std::is_base_of_v<Presets::ShaderPresets::StripePreset, P>) {
                 settings.shader.stripe = preset.genStripe();
             }
-            if constexpr (std::is_base_of_v<Presets::ShaderPresets::SlopePreset, P>) {
-                settings.shader.slope = preset.genSlope();
+            if constexpr (std::is_base_of_v<Presets::ShaderPresets::SurfacePreset, P>) {
+                settings.shader.surface = preset.genSurface();
             }
             if constexpr (std::is_base_of_v<Presets::ShaderPresets::ColorPreset, P>) {
                 settings.shader.color = preset.genColor();

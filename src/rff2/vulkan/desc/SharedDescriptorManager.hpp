@@ -14,6 +14,7 @@
 #include "vulkan_helper/util/DescriptorUpdater.hpp"
 
 namespace merutilm::rff2::SharedDescriptorManager {
+#ifdef USE_EXPERIMENTAL_3D
 
     struct DescManagerCamera3D : vkh::DescriptorTemplateManager {
 
@@ -47,7 +48,7 @@ namespace merutilm::rff2::SharedDescriptorManager {
             }
         }
     };
-
+#endif
 
     struct DescManagerTime : vkh::DescriptorTemplateManager {
         using DescriptorTemplateManager::DescriptorTemplateManager;
@@ -76,7 +77,23 @@ namespace merutilm::rff2::SharedDescriptorManager {
             return iterSSBO.getBufferContext();
         }
 
-        void resetIterationBuffer(const uint32_t width, const uint32_t height) const {
+        void zeroIterationBuffer(vkh::CommandPool &commandPool) const {
+            using namespace SharedDescriptorTemplate;
+            auto &iterSSBO = desc.get<vkh::ShaderStorage>(0, DescIteration::BINDING_SSBO_ITERATION_MATRIX);
+            auto &iterSSBOHost = iterSSBO.getHostObject();
+
+            iterSSBOHost.reset(DescIteration::TARGET_SSBO_ITERATION_BUFFER);
+            iterSSBO.reloadBuffer();
+            iterSSBO.localize(commandPool);
+
+            vkh::DescriptorUpdateQueue queue = vkh::DescriptorUpdater::createQueue();
+            for (uint32_t i = 0; i < wc.core.getPhysicalDeviceLoader().getMaxFramesInFlight(); ++i) {
+                desc.queue(queue, i, {}, {DescIteration::BINDING_SSBO_ITERATION_MATRIX});
+            }
+            vkh::DescriptorUpdater::write(wc.core.getLogicalDevice().getLogicalDeviceHandle(), queue);
+        }
+
+        void resetIterationBuffer(vkh::CommandPool &commandPool, const uint32_t width, const uint32_t height) const {
             using namespace SharedDescriptorTemplate;
             auto &iterUBO = desc.get<vkh::Uniform>(0, DescIteration::BINDING_UBO_ITERATION_INFO);
             auto &iterUBOHost = iterUBO.getHostObject();
@@ -86,9 +103,10 @@ namespace merutilm::rff2::SharedDescriptorManager {
             iterUBOHost.set<glm::uvec2>(DescIteration::TARGET_UBO_ITERATION_EXTENT, {width, height});
             iterUBO.update(DescIteration::TARGET_UBO_ITERATION_EXTENT);
 
+            if (iterSSBOHost.getElementCount(DescIteration::TARGET_SSBO_ITERATION_BUFFER) == width * height) return;
             iterSSBOHost.resizeArray<double>(DescIteration::TARGET_SSBO_ITERATION_BUFFER, width * height);
             iterSSBO.reloadBuffer();
-            iterSSBO.localize(wc.getCommandPool());
+            iterSSBO.localize(commandPool);
 
             vkh::DescriptorUpdateQueue queue = vkh::DescriptorUpdater::createQueue();
             for (uint32_t i = 0; i < wc.core.getPhysicalDeviceLoader().getMaxFramesInFlight(); ++i) {
@@ -129,6 +147,7 @@ namespace merutilm::rff2::SharedDescriptorManager {
             paletteSSBOHost.set<uint32_t>(DescPalette::TARGET_PALETTE_SINGLE_SMOOTHING,
                                           static_cast<uint32_t>(palette.singleIterationColoring));
             paletteSSBOHost.set<float>(DescPalette::TARGET_PALETTE_ANIMATION_SPEED, palette.animationSpeed);
+            paletteSSBOHost.set<glm::vec4>(DescPalette::TARGET_PALETTE_INTERIOR, palette.interiorColor);
             paletteSSBOHost.resizeArray<glm::vec4>(DescPalette::TARGET_PALETTE_COLORS, paletteLength);
             paletteSSBOHost.set<glm::vec4>(DescPalette::TARGET_PALETTE_COLORS, palette.colors);
             paletteSSBO.reloadBuffer();
@@ -159,19 +178,28 @@ namespace merutilm::rff2::SharedDescriptorManager {
             stripeUBO.update();
         }
     };
-    struct DescManagerSlope : vkh::DescriptorTemplateManager {
+    struct DescManagerFractalSurface : vkh::DescriptorTemplateManager {
         using DescriptorTemplateManager::DescriptorTemplateManager;
 
-        void set(const ShdSlopeSettings &slope, const float depthMultiplier, const uint32_t frameIndex) const {
+        void set(const ShdSurfaceSettings &surface, const float mouseAdditionalZoom, const glm::vec2 mouseZoomOffset, const uint32_t frameIndex) const {
             using namespace SharedDescriptorTemplate;
-            auto &slopeUBO = desc.get<vkh::Uniform>(0, DescSlope::BINDING_UBO_SLOPE);
-            auto &slopeUBOHost = slopeUBO.getHostObject();
-            slopeUBOHost.set<float>(DescSlope::TARGET_SLOPE_DEPTH, slope.depth * depthMultiplier);
-            slopeUBOHost.set<float>(DescSlope::TARGET_SLOPE_REFLECTION_RATIO, slope.reflectionRatio);
-            slopeUBOHost.set<float>(DescSlope::TARGET_SLOPE_OPACITY, slope.opacity);
-            slopeUBOHost.set<float>(DescSlope::TARGET_SLOPE_ZENITH, slope.zenith);
-            slopeUBOHost.set<float>(DescSlope::TARGET_SLOPE_AZIMUTH, slope.azimuth);
-            slopeUBO.updateMF(frameIndex);
+            auto &surfaceUBO = desc.get<vkh::Uniform>(0, DescFractalSurface::BINDING_UBO_SURFACE);
+            auto &surfaceUBOHost = surfaceUBO.getHostObject();
+            surfaceUBOHost.set<float>(DescFractalSurface::TARGET_SURFACE_DEPTH, surface.depth * mouseAdditionalZoom);
+            surfaceUBOHost.set<float>(DescFractalSurface::TARGET_SURFACE_SHADOW_BRIGHTNESS, surface.shadowBrightness);
+            surfaceUBOHost.set<float>(DescFractalSurface::TARGET_SURFACE_SHADOW_OPACITY, surface.shadowOpacity);
+            surfaceUBOHost.set<float>(DescFractalSurface::TARGET_SURFACE_LIGHT_ZENITH, surface.lightZenith);
+            surfaceUBOHost.set<float>(DescFractalSurface::TARGET_SURFACE_LIGHT_AZIMUTH, surface.lightAzimuth);
+            surfaceUBOHost.set<float>(DescFractalSurface::TARGET_SURFACE_LIGHT_SHARPNESS, surface.lightSharpness);
+            surfaceUBOHost.set<float>(DescFractalSurface::TARGET_SURFACE_LIGHT_STRENGTH, surface.lightStrength);
+            surfaceUBOHost.set<float>(DescFractalSurface::TARGET_SURFACE_DISTORTION_STRENGTH, surface.distortionStrength * mouseAdditionalZoom);
+            surfaceUBOHost.set<float>(DescFractalSurface::TARGET_SURFACE_REFLECTION_RATIO, surface.reflectionRatio);
+            surfaceUBOHost.set<float>(DescFractalSurface::TARGET_SURFACE_REFRACTION_RATIO, surface.refractionRatio);
+            surfaceUBOHost.set<float>(DescFractalSurface::TARGET_SURFACE_WAVE_FREQUENCY, surface.waveFrequency / mouseAdditionalZoom);
+            surfaceUBOHost.set<glm::vec2>(DescFractalSurface::TARGET_SURFACE_WAVE_OFFSET, surface.waveOffset * mouseAdditionalZoom + mouseZoomOffset);
+            surfaceUBOHost.set<float>(DescFractalSurface::TARGET_SURFACE_WAVE_SPEED, surface.waveSpeed);
+            surfaceUBOHost.set<float>(DescFractalSurface::TARGET_SURFACE_WAVE_STRENGTH, surface.waveStrength);
+            surfaceUBO.updateMF(frameIndex);
         }
     };
     struct DescManagerColor : vkh::DescriptorTemplateManager {
@@ -260,6 +288,8 @@ namespace merutilm::rff2::SharedDescriptorManager {
             }
         }
     };
+#ifdef USE_EXPERIMENTAL_3D
+
     struct DescManagerFractal3D : vkh::DescriptorTemplateManager {
 
         using DescriptorTemplateManager::DescriptorTemplateManager;
@@ -277,18 +307,20 @@ namespace merutilm::rff2::SharedDescriptorManager {
             f3dUBO.update();
         }
     };
+#endif
     struct DescManagerBatchResult : vkh::DescriptorTemplateManager {
         using DescriptorTemplateManager::DescriptorTemplateManager;
 
 
-        void resizeBatchResultBuffer(const uint32_t width, const uint32_t height) const {
+        void resizeBatchResultBuffer(vkh::CommandPool &commandPool, const uint32_t width, const uint32_t height) const {
             using namespace SharedDescriptorTemplate;
             auto &batchResultSSBO = desc.get<vkh::ShaderStorage>(0, DescBatchResult::BINDING_BATCH_RESULT_SSBO);
             auto &batchResultSSBOHost = batchResultSSBO.getHostObject();
+
+            if (batchResultSSBOHost.getElementCount(DescBatchResult::BINDING_BATCH_RESULT_SSBO) == width * height) return;
             batchResultSSBOHost.resizeArray<uint32_t>(DescBatchResult::BINDING_BATCH_RESULT_SSBO, width * height);
             batchResultSSBO.reloadBuffer();
-            batchResultSSBO.update();
-            batchResultSSBO.localize(wc.getCommandPool());
+            batchResultSSBO.localize(commandPool);
 
             vkh::DescriptorUpdateQueue queue = vkh::DescriptorUpdater::createQueue();
             for (uint32_t i = 0; i < wc.core.getPhysicalDeviceLoader().getMaxFramesInFlight(); ++i) {

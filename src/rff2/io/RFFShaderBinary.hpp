@@ -16,6 +16,15 @@ namespace merutilm::rff2 {
         explicit RFFShaderBinary(ShaderSettings shaderSettings);
 
         [[nodiscard]] static RFFShaderBinary read(std::ifstream &in);
+        static void readPaletteSettings(std::ifstream &in, ShdPaletteSettings &palette, uint32_t version);
+        static void readStripeSettings(std::ifstream &in, ShdStripeSettings &stripe);
+        static void readSurfaceSettings(std::ifstream &in, ShdSurfaceSettings &surface, uint32_t version);
+        static void readColorSettings(std::ifstream &in, ShdColorSettings &color);
+        static void readFogSettings(std::ifstream &in, ShdFogSettings &fog);
+        static void readBloomSettings(std::ifstream &in, ShdBloomSettings &bloom);
+        static void readSamplingSettings(std::ifstream &in, ShdSamplingSettings &sampling,
+                                         uint32_t version, bool legacyRffExpV2);
+        static void readFractal3DSettings(std::ifstream &in, ShdFractal3DSettings &fractal3d);
 
         void write(std::ofstream &out) const;
     };

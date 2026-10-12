@@ -29,9 +29,15 @@ static void testCode() {
     using namespace merutilm::rff2;
     using namespace merutilm::vkh;
 
-    // fixed_point_complex an("-0.96128094211304257740641040047580610611", "19.98729773974653315809303398027879313756", -37);
-    // fixed_point_complex z("-1.70281464353043399390656742366030661032", "0.00074505245294930107889245247940180791", -37);
-    // fixed_point_complex::mul(an, an, z);
+    // fixed_point_decimal z("-4", -37);
+    // z.try_realloc_inc(123, true);
+    // std::array<fixed_point_decimal, fixed_point_complex::TEMPS_COUNT> temps;
+    // z.one();
+    // std::cout << z << std::endl;
+    // z.set_exp2div64(-4, true);
+    // std::cout << z << std::endl;
+    // z.set_exp2div64(-4, true);
+    // std::cout << z << std::endl;
 }
 #endif
 
@@ -43,7 +49,18 @@ int main() {
     testCode();
     count();
 #endif
-    Application::start<RFF2>({.framerate = Constants::Render::INIT_FPS,
+    Application::start<RFF2>({.version = VK_API_VERSION_1_3,
+                              .instanceExtensions = {},
+                              .deviceExtensions =
+                                      {
+                                              VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+                                              // VK_KHR_VIDEO_QUEUE_EXTENSION_NAME,
+                                              // VK_KHR_VIDEO_ENCODE_QUEUE_EXTENSION_NAME,
+                                              // VK_KHR_VIDEO_ENCODE_H264_EXTENSION_NAME,
+                                              // VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME,
+                                              // VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME,
+                                      }},
+                             {.framerate = Constants::Render::INIT_FPS,
                               .name = "RFF 2.0",
                               .icon = "../res/icon.png",
                               .widthInfo = {.min = Constants::Render::MIN_WINDOW_WIDTH,

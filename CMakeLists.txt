@@ -16,6 +16,12 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
 set(CMAKE_BUILD_RPATH "$ORIGIN")
 
+option(
+        RFF_NATIVE_OPTIMIZATIONS
+        "Optimize binaries for the build computer's CPU (disable for portable builds)"
+        ON
+)
+
 add_executable(
         RFF
         extern/imgui/misc/cpp/imgui_stdlib.cpp
@@ -38,7 +44,7 @@ add_executable(
         src/rff2/preset/shader/palette/ShdPalettePresets.cpp
         src/rff2/preset/shader/fog/ShdFogPresets.cpp
         src/rff2/preset/shader/color/ShdColorPresets.cpp
-        src/rff2/preset/shader/slope/ShdSlopePresets.cpp
+        src/rff2/preset/shader/surface/ShdSurfacePresets.cpp
         src/rff2/preset/shader/stripe/ShdStripePresets.cpp
         src/rff2/preset/shader/bloom/ShdBloomPresets.cpp
         src/rff2/preset/resolution/ResolutionPresets.cpp
@@ -57,7 +63,7 @@ add_executable(
         src/rff2/vulkan/GPCIterationPalette.cpp
         src/rff2/app/RFF2.cpp
         src/rff2/vulkan/GPCStripe.cpp
-        src/rff2/vulkan/GPCSlope.cpp
+        src/rff2/vulkan/GPCFractalSurface.cpp
         src/rff2/vulkan/GPCColor.cpp
         src/rff2/vulkan/GPCFog.cpp
         src/rff2/vulkan/GPCDownsampleForBlur.cpp
@@ -74,25 +80,27 @@ add_executable(
         src/rff2/app/FnPreset.cpp
         src/rff2/vulkan/GPC3DFractal.cpp
         src/rff2/vulkan/GPCSmoothZoom.cpp
+        src/rff2/vulkan/GPCResample.cpp
         src/rff2/vulkan/CPCInterpolateIsolated.cpp
-        src/rff2/vulkan/CPCInterpolateIsolated.hpp
-        include/vulkan_helper/engine/wrapped/DescriptorTemplateManager.hpp
-        src/rff2/mb/ReferenceCheckpoint.hpp
-        src/rff2/app/FnListeners.hpp
-        src/rff2/calc/rff_random.hpp
         src/rff2/mb/MB2Locator.cpp
-        src/rff2/settings/ExpLocatorSettings.hpp
         src/rff2/io/RFFShaderBinary.cpp
-        src/rff2/io/RFFShaderBinary.hpp
-        src/rff2/io/RFFMapBinary.hpp
+        src/rff2/vulkan/video/H264VideoEncoder.cpp
 )
 
 target_compile_options(RFF PRIVATE
         #Debug options
         $<$<CONFIG:Debug>:-O0>
         #Release options
-        $<$<CONFIG:Release>:-O3 -ffast-math -fno-associative-math -funroll-loops -march=native -mllvm -inline-threshold=4000>
+        $<$<CONFIG:Release>:-O3 -ffast-math -funroll-loops -mllvm -inline-threshold=4000>
+        #RelWithDebInfo options
+        $<$<CONFIG:RelWithDebInfo>:-O3 -ffast-math -fno-omit-frame-pointer -funroll-loops>
 )
+
+if (RFF_NATIVE_OPTIMIZATIONS)
+    target_compile_options(RFF PRIVATE
+            $<$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>>:-march=native>
+    )
+endif ()
 
 add_subdirectory(src/vulkan_helper)
 
@@ -128,6 +136,10 @@ if (WIN32)
             ${CLANG64_LIBS}/libopencv_imgproc.dll.a
             ${CLANG64_LIBS}/libopencv_videoio.dll.a
             ${CLANG64_LIBS}/libopencv_highgui.dll.a
+            # FFmpeg Linkers
+            ${CLANG64_LIBS}/libavcodec.dll.a
+            ${CLANG64_LIBS}/libavformat.dll.a
+            ${CLANG64_LIBS}/libavutil.dll.a
             # Render-pool networking
             ws2_32
     )
@@ -157,8 +169,13 @@ elseif (UNIX)
 
     find_package(OpenCV REQUIRED)
     find_package(PkgConfig REQUIRED)
-    pkg_check_modules(GTK3 REQUIRED gtk+-3.0)
 
+    pkg_check_modules(GTK3 REQUIRED gtk+-3.0)
+    pkg_check_modules(FFMPEG REQUIRED
+            libavcodec
+            libavformat
+            libavutil
+    )
 
     find_static_library(GMP_STATIC gmp)
 
@@ -172,12 +189,21 @@ elseif (UNIX)
             ${GTK3_LIBRARIES}
             # OpenCV Linkers
             ${OpenCV_LIBS}
+            # FFmpeg Linkers
+            ${FFMPEG_LIBRARIES}
     )
     target_include_directories(RFF PRIVATE
             # opencv4 include dirs
             ${OpenCV_INCLUDE_DIRS}
             # gtk
             ${GTK3_INCLUDE_DIRS}
+            # ffmpeg
+            ${FFMPEG_INCLUDE_DIRS}
+    )
+
+    target_link_directories(RFF PRIVATE
+            # ffmpeg
+            ${FFMPEG_LIBRARY_DIRS}
     )
 
 endif ()
@@ -221,6 +247,8 @@ FetchContent_MakeAvailable(nfd)
 target_link_libraries(RFF PRIVATE nfd libminiupnpc-static)
 
 RFF_DEFINITION(SAFE_EXP_OPERATOR "Better Quality, Slower Speed (Safety checking)" OFF)
+RFF_DEFINITION(USE_EXPERIMENTAL_3D "Use Experimental 3D Fractal Feature" OFF)
+RFF_DEFINITION(RFF_NO_ASSUME "Disable compiler assume hints" OFF)
 
 option(RFF_BUILD_TESTS "Build RFF-EXP render-pool tests" OFF)
 if (RFF_BUILD_TESTS)

@@ -12,6 +12,7 @@
 
 #include <cassert>
 #include "../util/Utilities.h"
+#include "../util/ImGuiUtils.hpp"
 
 #include "../constants/Constants.hpp"
 #include "../mb/MB2Locator.hpp"
@@ -98,6 +99,9 @@ namespace merutilm::rff2 {
         static float relativeStart = 0.0f;
         static bool relativeStartCaptured = false;
 
+        ImGui::Checkbox("Burst-locate", &app.getSettings().explore.locator.burst);
+        ImGuiUtils::HelpMarker("Uses a faster center search that may be less stable.");
+
         constexpr const char *TARGETS[] = {"Relative (minibrot)", "Absolute (minibrot)"};
         constexpr const char *ACTIONS[] = {"Period", "Center", "Zoom"};
         constexpr const char *FOLDINGS[] = {"Custom",     "0.5 (2x)",     "0.75 (4x)",
@@ -151,9 +155,8 @@ namespace merutilm::rff2 {
                 app.getState().cancel();
 
                 const MB2RenderDataBase *data = app.getCurrentRenderData();
-                std::unique_ptr<ApproxTableCacheBase> *cache = app.getApproxTableCache();
                 const MB2ReferenceBase *reference = data ? data->getReference() : nullptr;
-                if (!data || !cache || !*cache || !reference) {
+                if (!data || !reference) {
                     setNewtonStatus("A completed fractal render is required.");
                 } else {
                     const uint64_t period = reference->longestPeriod();
@@ -174,7 +177,7 @@ namespace merutilm::rff2 {
                         newtonRunning = true;
                         setNewtonStatus("Starting Newton center search...");
 
-                        app.getState().createThread([&app, data, cache, &settings, period, runAction, runTarget,
+                        app.getState().createThread([&app, data, &settings, period, runAction, runTarget,
                                                      runStart, folding, power, sizeFactor, statusStartTime] {
                             bool resultRenderRequested = false;
                             try {

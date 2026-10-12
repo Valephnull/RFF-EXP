@@ -144,6 +144,7 @@ namespace merutilm::rff2 {
             writer.value(static_cast<uint64_t>(palette.colors.size()));
             for (const glm::vec4 &color : palette.colors)
                 writeVec4(writer, color);
+            writeVec4(writer, palette.interiorColor);
             writer.enumeration(palette.iterationColoring);
             writer.enumeration(palette.singleIterationColoring);
             writer.value(palette.iterationInterval);
@@ -159,12 +160,22 @@ namespace merutilm::rff2 {
             writer.value(stripe.animationSpeed);
             writer.enumeration(stripe.iterationColoring);
 
-            const auto &slope = shader.slope;
-            writer.value(slope.depth);
-            writer.value(slope.reflectionRatio);
-            writer.value(slope.opacity);
-            writer.value(slope.zenith);
-            writer.value(slope.azimuth);
+            const auto &surface = shader.surface;
+            writer.value(surface.depth);
+            writer.value(surface.shadowBrightness);
+            writer.value(surface.shadowOpacity);
+            writer.value(surface.lightZenith);
+            writer.value(surface.lightAzimuth);
+            writer.value(surface.lightSharpness);
+            writer.value(surface.lightStrength);
+            writer.value(surface.distortionStrength);
+            writer.value(surface.reflectionRatio);
+            writer.value(surface.refractionRatio);
+            writer.value(surface.waveFrequency);
+            writer.value(surface.waveOffset.x);
+            writer.value(surface.waveOffset.y);
+            writer.value(surface.waveSpeed);
+            writer.value(surface.waveStrength);
 
             const auto &color = shader.color;
             writer.value(color.gamma);
@@ -193,7 +204,7 @@ namespace merutilm::rff2 {
             writer.value(fractal3D.depthDivisor);
         }
 
-        bool readShader(Reader &reader, ShaderSettings &shader) {
+        bool readShader(Reader &reader, ShaderSettings &shader, const uint32_t version) {
             auto &palette = shader.palette;
             uint64_t colorCount = 0;
             if (!reader.value(colorCount) || colorCount == 0 || colorCount > MAX_PALETTE_COLORS)
@@ -203,6 +214,8 @@ namespace merutilm::rff2 {
                 if (!readVec4(reader, color))
                     return false;
             }
+            if (version >= 3 && !readVec4(reader, palette.interiorColor))
+                return false;
             if (!reader.enumeration(palette.iterationColoring, 0, 2) ||
                 !reader.enumeration(palette.singleIterationColoring, 0, 2) ||
                 !reader.value(palette.iterationInterval) || !reader.value(palette.offsetRatio) ||
@@ -216,9 +229,17 @@ namespace merutilm::rff2 {
                 !reader.enumeration(stripe.iterationColoring, 0, 2))
                 return false;
 
-            auto &slope = shader.slope;
-            if (!reader.value(slope.depth) || !reader.value(slope.reflectionRatio) || !reader.value(slope.opacity) ||
-                !reader.value(slope.zenith) || !reader.value(slope.azimuth))
+            auto &surface = shader.surface;
+            if (!reader.value(surface.depth) || !reader.value(surface.shadowBrightness) ||
+                !reader.value(surface.shadowOpacity) || !reader.value(surface.lightZenith) ||
+                !reader.value(surface.lightAzimuth))
+                return false;
+            if (version >= 3 &&
+                (!reader.value(surface.lightSharpness) || !reader.value(surface.lightStrength) ||
+                 !reader.value(surface.distortionStrength) || !reader.value(surface.reflectionRatio) ||
+                 !reader.value(surface.refractionRatio) || !reader.value(surface.waveFrequency) ||
+                 !reader.value(surface.waveOffset.x) || !reader.value(surface.waveOffset.y) ||
+                 !reader.value(surface.waveSpeed) || !reader.value(surface.waveStrength)))
                 return false;
 
             auto &color = shader.color;
@@ -241,8 +262,12 @@ namespace merutilm::rff2 {
                    shader.sampling.sampleCount <= 4096 && shader.fractal3D.depthDivisor > 0.0f &&
                    allFinite({palette.iterationInterval, palette.offsetRatio, palette.animationSpeed,
                               stripe.firstInterval, stripe.secondInterval, stripe.opacity, stripe.offset,
-                              stripe.animationSpeed, slope.depth, slope.reflectionRatio, slope.opacity, slope.zenith,
-                              slope.azimuth, color.gamma, color.exposure, color.hue, color.saturation,
+                              stripe.animationSpeed, surface.depth, surface.shadowBrightness, surface.shadowOpacity,
+                              surface.lightZenith, surface.lightAzimuth, surface.lightSharpness,
+                              surface.lightStrength, surface.distortionStrength, surface.reflectionRatio,
+                              surface.refractionRatio, surface.waveFrequency, surface.waveOffset.x,
+                              surface.waveOffset.y, surface.waveSpeed, surface.waveStrength,
+                              color.gamma, color.exposure, color.hue, color.saturation,
                               color.brightness, color.contrast, shader.fog.radius, shader.fog.opacity,
                               shader.bloom.threshold, shader.bloom.radius, shader.bloom.softness,
                               shader.bloom.intensity, shader.fractal3D.altitude, shader.fractal3D.rotation,
@@ -290,7 +315,7 @@ namespace merutilm::rff2 {
             const auto &display = settings.render.display;
             writer.value(display.clarityMultiplier);
             writer.value(display.fps);
-            writer.enumeration(display.pixelRenderPriority);
+            writer.value(display.blockSize);
 
             const auto &compute = settings.render.computeShader;
             writer.boolean(compute.use);
@@ -359,13 +384,24 @@ namespace merutilm::rff2 {
 
             auto &display = settings.render.display;
             auto &compute = settings.render.computeShader;
-            if (!reader.value(display.clarityMultiplier) || !reader.value(display.fps) ||
-                !reader.enumeration(display.pixelRenderPriority, 0, 1) || !reader.boolean(compute.use) ||
+            if (!reader.value(display.clarityMultiplier) || !reader.value(display.fps))
+                return false;
+            if (version >= 3) {
+                if (!reader.value(display.blockSize))
+                    return false;
+            } else {
+                int32_t obsoletePixelRenderPriority = 0;
+                if (!reader.value(obsoletePixelRenderPriority) || obsoletePixelRenderPriority < 0 ||
+                    obsoletePixelRenderPriority > 1)
+                    return false;
+                display.blockSize = 32;
+            }
+            if (!reader.boolean(compute.use) ||
                 !reader.value(compute.preferredBatchDuration) || !reader.value(compute.allowedGlitchPixelCount) ||
                 !reader.boolean(compute.completelyIgnoreMpa) ||
                 !reader.value(compute.automaticAcceptMpaBatches) ||
                 !reader.boolean(compute.interpolateIsolated) || !reader.value(width) || !reader.value(height) ||
-                !readShader(reader, settings.shader))
+                !readShader(reader, settings.shader, version))
                 return false;
 
             auto &video = settings.video;
@@ -465,7 +501,7 @@ namespace merutilm::rff2 {
         if (!reader.good() || !readHeader(reader, SHADER_MAGIC, version))
             return false;
         ShaderSettings candidate = shader;
-        if (!readShader(reader, candidate))
+        if (!readShader(reader, candidate, version))
             return false;
         shader = std::move(candidate);
         return true;

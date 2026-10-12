@@ -4,8 +4,8 @@
 
 #pragma once
 #include "GPCColor.hpp"
+#include "GPCFractalSurface.hpp"
 #include "GPCIterationPalette.hpp"
-#include "GPCSlope.hpp"
 #include "GPCStripe.hpp"
 #include "SharedImageContextIndices.hpp"
 #include "vulkan_helper/engine/graphics/RenderPassGraphGenerator.hpp"
@@ -19,7 +19,7 @@ namespace merutilm::rff2 {
     public:
         GPCIterationPalette *iterationPalette = nullptr;
         GPCStripe *stripe = nullptr;
-        GPCSlope *slope = nullptr;
+        GPCFractalSurface *fractalSurface = nullptr;
         GPCColor *color = nullptr;
 
         using RenderPassGraphGenerator::RenderPassGraphGenerator;
@@ -71,18 +71,18 @@ namespace merutilm::rff2 {
 
             vkh::GraphicsPipelineNode *stripeNode =
                     registerPipeline<GPCStripe>(&stripe, {paletteNode},
-                                                {resultAttachment, RendererUtils::COLOR_REF_INFO,
-                                                 RendererUtils::SAMPLER_READ_DEPENDENCY, RendererUtils::INPUT_REF_INFO},
+                                                {.targetAttachment = resultAttachment, .srcReferenceInfo = RendererUtils::COLOR_REF_INFO,
+                                                 .dependency = RendererUtils::SAMPLER_READ_DEPENDENCY, .dstReferenceInfo = RendererUtils::INPUT_REF_INFO},
                                                 RendererUtils::DEFAULT_DESC_PICKER);
 
-            vkh::GraphicsPipelineNode *slopeNode =
-                    registerPipeline<GPCSlope>(&slope, {stripeNode},
-                                               {tempAttachment, RendererUtils::COLOR_REF_INFO,
-                                                RendererUtils::INPUT_READ_DEPENDENCY, RendererUtils::INPUT_REF_INFO},
+            vkh::GraphicsPipelineNode *surfaceNode =
+                    registerPipeline<GPCFractalSurface>(&fractalSurface, {stripeNode},
+                                               {.targetAttachment = tempAttachment, .srcReferenceInfo = RendererUtils::COLOR_REF_INFO,
+                                                .dependency = RendererUtils::INPUT_READ_DEPENDENCY, .dstReferenceInfo = RendererUtils::INPUT_REF_INFO},
                                                RendererUtils::DEFAULT_DESC_PICKER);
 
-            registerPipeline<GPCColor>(&color, {slopeNode},
-                                       {resultAttachment, RendererUtils::COLOR_REF_INFO, std::nullopt, std::nullopt},
+            registerPipeline<GPCColor>(&color, {surfaceNode},
+                                       {.targetAttachment = resultAttachment, .srcReferenceInfo = RendererUtils::COLOR_REF_INFO, .dependency = std::nullopt, .dstReferenceInfo = std::nullopt},
                                        RendererUtils::DEFAULT_DESC_PICKER);
         }
     };

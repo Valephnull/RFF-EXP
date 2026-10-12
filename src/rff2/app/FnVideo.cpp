@@ -9,11 +9,12 @@
 #include "../io/RFFStaticMapBinary.hpp"
 #include "../preset/shader/bloom/ShdBloomPresets.hpp"
 #include "../preset/shader/fog/ShdFogPresets.hpp"
-#include "../preset/shader/slope/ShdSlopePresets.hpp"
 #include "../preset/shader/stripe/ShdStripePresets.hpp"
+#include "../preset/shader/surface/ShdSurfacePresets.hpp"
 #include "../util/Utilities.h"
 #include "IOUtilities.h"
 #include "VideoWindow.hpp"
+#include "../util/ImGuiUtils.hpp"
 
 
 namespace merutilm::rff2 {
@@ -26,48 +27,43 @@ namespace merutilm::rff2 {
 
     void FnVideo::dataSettings(RFF2 &app) {
 
-        if (ImGui::TreeNode("Data Settings")) {
-            auto &[defaultZoomIncrement, isStatic] = app.getSettings().video.data;
+        ImGuiUtils::BeginSettings("Data Settings");
+        auto &[defaultZoomIncrement, isStatic] = app.getSettings().video.data;
 
-            if (ImGui::InputDouble("Default Zoom Increment", &defaultZoomIncrement)) {
-                defaultZoomIncrement = std::clamp(defaultZoomIncrement, 1.25, 8.0);
-            }
-
-            Utilities::imguiHelpMarker("Set the log-Zoom interval between two adjacent video keyframes.");
-
-            ImGui::Checkbox("Static data", &isStatic);
-            Utilities::imguiHelpMarker("Generates using .png image instead of data file. all shaders will be disabled "
-                                       "when trying to generate video data.");
-            ImGui::TreePop();
+        if (ImGui::InputDouble("Default Zoom Increment", &defaultZoomIncrement)) {
+            defaultZoomIncrement = std::clamp(defaultZoomIncrement, 1.25, 8.0);
         }
+
+        ImGuiUtils::HelpMarker("Set the log-Zoom interval between two adjacent video keyframes.");
+
+        ImGui::Checkbox("Static data", &isStatic);
+        ImGuiUtils::HelpMarker("Generates using .png image instead of data file. all shaders will be disabled "
+                                   "when trying to generate video data.");
+        ImGuiUtils::EndSettings();
     }
     void FnVideo::animationSettings(RFF2 &app) {
 
-        if (ImGui::TreeNode("Animation Settings")) {
-            auto &[overZoom, showText, mps] = app.getSettings().video.animation;
-            ImGui::InputFloat("Over Zoom", &overZoom);
-            Utilities::imguiHelpMarker("Zoom the final video data.");
+        ImGuiUtils::BeginSettings("Animation Settings");
+        auto &[overZoom, showText, mps] = app.getSettings().video.animation;
+        ImGui::InputFloat("Over Zoom", &overZoom);
+        ImGuiUtils::HelpMarker("Zoom the final video data.");
 
-            ImGui::Checkbox("Show Text", &showText);
-            Utilities::imguiHelpMarker("Show the text on video.");
+        ImGui::Checkbox("Show Text", &showText);
+        ImGuiUtils::HelpMarker("Show the text on video.");
 
-            ImGui::InputFloat("Zoom Speed", &mps);
-            Utilities::imguiHelpMarker("Sets the zoom speed, Number of Map(.rfm) data used per second in video");
-
-            ImGui::TreePop();
-        }
+        ImGui::InputFloat("Zoom Speed", &mps);
+        ImGuiUtils::HelpMarker("Sets the zoom speed, Number of Map(.rfm) data used per second in video");
+        ImGuiUtils::EndSettings();
     }
     void FnVideo::exportSettings(RFF2 &app) {
 
-        if (ImGui::TreeNode("Export Settings")) {
-            auto &[fps, bitrate] = app.getSettings().video.exportation;
-            ImGui::InputFloat("FPS", &fps);
-            Utilities::imguiHelpMarker("Set the fps of the video to export.");
-            ImGui::InputScalar("Bitrate", ImGuiDataType_U16, &bitrate);
-            Utilities::imguiHelpMarker("Sets the bitrate of the video to export.");
-
-            ImGui::TreePop();
-        }
+        ImGuiUtils::BeginSettings("Export Settings");
+        auto &[fps, bitrate] = app.getSettings().video.exportation;
+        ImGui::InputFloat("FPS", &fps);
+        ImGuiUtils::HelpMarker("Set the fps of the video to export.");
+        ImGui::InputScalar("Bitrate", ImGuiDataType_U16, &bitrate);
+        ImGuiUtils::HelpMarker("Sets the bitrate of the video to export.");
+        ImGuiUtils::EndSettings();
     }
 
     void FnVideo::renderingProcessMenu(RFF2 &) { ImGui::Checkbox("Rendering Process", &showRenderingProcess); }
@@ -138,7 +134,7 @@ namespace merutilm::rff2 {
 
                     if (videoSettings.data.isStatic) {
                         settings.shader.stripe = ShdStripePresets::Disabled().genStripe();
-                        settings.shader.slope = ShdSlopePresets::Disabled().genSlope();
+                        settings.shader.surface = ShdSurfacePresets::Disabled().genSurface();
                         settings.shader.fog = ShdFogPresets::Disabled().genFog();
                         settings.shader.bloom = ShdBloomPresets::Disabled().genBloom();
                         app.getRequests().requestShader();
@@ -188,9 +184,10 @@ namespace merutilm::rff2 {
 
                         auto &center = settings.fractal.reference.center;
 
-                        RFFBinary::exportFile(RFFLocationBinary(settings.fractal.general.logZoom, center.real.to_string(),
-                                          center.imag.to_string(), settings.fractal.perturb.maxIteration), IOUtilities::generateFilename(dir, Constants::File::EXT_LOCATION, nullptr)
-                                                    .string());
+                        RFFBinary::exportFile(
+                                RFFLocationBinary(settings.fractal.general.logZoom, center.real.to_string(),
+                                                  center.imag.to_string(), settings.fractal.perturb.maxIteration),
+                                IOUtilities::generateFilename(dir, Constants::File::EXT_LOCATION, nullptr).string());
                         logZoom -= increment;
                         nextFrame = true;
                     }
@@ -208,7 +205,7 @@ namespace merutilm::rff2 {
             }
         }
     }
-    void FnVideo::exportZoomVideo(RFF2 &app) {
+    void FnVideo::exportZoomingVideo(RFF2 &app) {
         if (ImGui::Button("Export Zooming Video", ImVec2(-FLT_MIN, 0))) {
             auto openPtr = IOUtilities::ioDirectoryDialog();
 

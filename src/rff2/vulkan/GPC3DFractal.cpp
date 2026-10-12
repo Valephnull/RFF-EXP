@@ -2,14 +2,16 @@
 // Created by Merutilm on 7/27/26.
 //
 
-#include "GPC3DFractal.hpp"
+#ifdef USE_EXPERIMENTAL_3D
 
+#include "GPC3DFractal.hpp"
 #include <glm/gtc/matrix_transform.hpp>
 #include "desc/SharedDescriptorTemplate.hpp"
 #include "vulkan_helper/engine/configurator/GeneralPostProcessGraphicsPipelineConfigurator.hpp"
 #include "vulkan_helper/engine/wrapped/Vertex.hpp"
 
 namespace merutilm::rff2 {
+
     void GPC3DFractal::updateQueue(vkh::DescriptorUpdateQueue &queue, uint32_t frameIndex) {}
 
     void GPC3DFractal::cmdRender(const VkCommandBuffer cbh, const uint32_t frameIndex,
@@ -217,7 +219,7 @@ namespace merutilm::rff2 {
         appendDescriptor<DescCamera3D>(SET_CAMERA, descriptors);
         appendDescriptor<DescFractal3D>(SET_FRACTAL3D, descriptors);
         appendDescriptor<DescStripe>(SET_STRIPE, descriptors);
-        appendDescriptor<DescSlope>(SET_SLOPE, descriptors);
+        appendDescriptor<DescFractalSurface>(SET_FRACTAL_SURFACE, descriptors);
     }
 
     void GPC3DFractal::configureVertexBuffer(vkh::HostDataObjectManager &som) {
@@ -228,3 +230,4 @@ namespace merutilm::rff2 {
         som.reserveArray<uint32_t>(TARGET_IBO, 1);
     }
 } // namespace merutilm::rff2
+#endif

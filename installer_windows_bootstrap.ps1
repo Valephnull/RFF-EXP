@@ -119,12 +119,13 @@ $Packages = @(
     "mingw-w64-clang-x86_64-ninja",
     "mingw-w64-clang-x86_64-gmp",
     "mingw-w64-clang-x86_64-vulkan",
+    "mingw-w64-clang-x86_64-vulkan-headers",
     "mingw-w64-clang-x86_64-glm",
     "mingw-w64-clang-x86_64-glfw",
     "mingw-w64-clang-x86_64-opencv",
     "mingw-w64-clang-x86_64-openssl",
-    "mingw-w64-clang-x86_64-vulkan-headers",
-    "mingw-w64-clang-x86_64-shaderc"
+    "mingw-w64-clang-x86_64-shaderc",
+    "mingw-w64-clang-x86_64-ffmpeg"
 ) -join " "
 
 & $Msys2Bash -lc "pacman -S --noconfirm --needed $Packages"

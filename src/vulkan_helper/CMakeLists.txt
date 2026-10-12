@@ -11,7 +11,7 @@ add_subdirectory(core)
 add_subdirectory(engine)
 add_subdirectory(util)
 
-add_library(vulkan_helper SHARED
+add_library(vulkan_helper STATIC
         Application.cpp
         $<TARGET_OBJECTS:core>
         $<TARGET_OBJECTS:util>
@@ -38,8 +38,14 @@ target_compile_options(vulkan_helper PRIVATE
         #Debug options
         $<$<CONFIG:Debug>:-O0>
         #Release options
-        $<$<CONFIG:Release>:-O3 -funroll-loops -march=native>
+        $<$<CONFIG:Release>:-O3 -funroll-loops>
 )
+
+if (RFF_NATIVE_OPTIMIZATIONS)
+    target_compile_options(vulkan_helper PRIVATE
+            $<$<CONFIG:Release>:-march=native>
+    )
+endif ()
 
 target_link_libraries(vulkan_helper PUBLIC
         # Dependency

@@ -12,14 +12,14 @@ namespace merutilm::rff2 {
 
     enum class MemoryAllocationMode { NONE, NATIVE, VK_BUFFER };
 
-
-
+    struct allocation_failed : std::runtime_error {
+        explicit allocation_failed() : std::runtime_error("allocation failed") {}
+    };
     struct allocation_cancelled : std::runtime_error {
         explicit allocation_cancelled() : std::runtime_error("allocation cancelled") {}
     };
 
-    template<typename Pod>
-        requires std::is_trivially_copyable_v<Pod>
+
     struct CachedPodVector {
 
 
@@ -30,21 +30,18 @@ namespace merutilm::rff2 {
 
         static constexpr uint64_t INITIAL_MAXIMUM_MEMORY = 17179869184;
         uint64_t allowedMaximumSize = INITIAL_MAXIMUM_MEMORY;
-        Pod *raw = nullptr;
+        std::byte *raw = nullptr;
         size_t sizeUsed = 0;
+        size_t allocated = 0;
 
-#ifndef NDEBUG
-        std::span<Pod> view{};
-#endif
-
-        explicit CachedPodVector(vkh::Core &core) : core(core) {
-        }
+        explicit CachedPodVector(vkh::Core &core) : core(core) {}
 
         ~CachedPodVector() {
             if (mode == MemoryAllocationMode::NATIVE) {
                 free(raw);
             }
             if (mode == MemoryAllocationMode::VK_BUFFER) {
+                vkh::BufferContext::unmapMemory(core, ctx);
                 vkh::BufferContext::destroyContext(core, ctx);
             }
         }
@@ -53,51 +50,89 @@ namespace merutilm::rff2 {
         CachedPodVector(CachedPodVector &&) = delete;
         CachedPodVector operator=(const CachedPodVector &&) = delete;
 
+        template<typename Pod>
+            requires std::is_trivially_copyable_v<Pod>
         void resizeWithWarning(const size_t newSize, const bool makeGpuReadable) {
-            if (newSize > sizeUsed || newSize < sizeUsed / 4 + 1 || makeGpuReadable != (mode == MemoryAllocationMode::VK_BUFFER)) {
 
-                const size_t calcedSize = newSize * sizeof(Pod);
-                if (allowedMaximumSize < calcedSize &&
+            const size_t allocationSize = newSize * sizeof(Pod);
+            if (allocationSize > allocated || allocationSize < allocated / 4 + 1 ||
+                makeGpuReadable != (mode == MemoryAllocationMode::VK_BUFFER)) {
+
+                if (allowedMaximumSize < allocationSize &&
                     !vkh::logger::messagebox_yn(
                             "Warning", "The application has requested more than {} of memory. Do you want to continue?",
-                            Utilities::formatByte(calcedSize))) {
+                            Utilities::formatByte(allocationSize))) {
                     throw allocation_cancelled();
                 }
 
-                allowedMaximumSize = std::max(allowedMaximumSize, calcedSize);
+                allowedMaximumSize = std::max(allowedMaximumSize, allocationSize);
                 if (mode == MemoryAllocationMode::NATIVE) {
                     free(raw);
                 }
                 if (mode == MemoryAllocationMode::VK_BUFFER) {
+                    vkh::BufferContext::unmapMemory(core, ctx);
                     vkh::BufferContext::destroyContext(core, ctx);
                 }
+
+                ctx = {};
+                raw = nullptr;
+                allocated = 0;
+                sizeUsed = 0;
+                mode = MemoryAllocationMode::NONE;
+
                 if (newSize == 0) {
-                    raw = nullptr;
-                    ctx = {};
-                    mode = MemoryAllocationMode::NONE;
-                } else if (makeGpuReadable) {
-                    ctx = vkh::BufferContext::createContext(core, {
-                        .size = calcedSize,
-                        .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-                        .properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT
-                    });
+                    return;
+                }
+
+                if (makeGpuReadable) {
+                    ctx = vkh::BufferContext::createContext(core, {.size = allocationSize,
+                                                                   .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                                                                   .properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                                                                 VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
+                                                                                 VK_MEMORY_PROPERTY_HOST_CACHED_BIT});
+                    if (ctx.buffer == VK_NULL_HANDLE) {
+                        vkh::logger::log("Memory allocation failed!!");
+                        throw allocation_failed();
+                    }
+
                     vkh::BufferContext::mapMemory(core, ctx);
-                    raw = reinterpret_cast<Pod *>(ctx.mappedMemory);
+
+                    if (ctx.mappedMemory == nullptr) {
+                        vkh::logger::log("Memory mapping failed!!");
+                        vkh::BufferContext::destroyContext(core, ctx);
+                        ctx = {};
+                        throw allocation_failed();
+                    }
+
+                    raw = ctx.mappedMemory;
                     mode = MemoryAllocationMode::VK_BUFFER;
                 } else {
-                    raw = static_cast<Pod *>(malloc(calcedSize));
+
+                    raw = static_cast<std::byte *>(malloc(allocationSize));
+
+                    if (!raw) {
+                        vkh::logger::log("Memory allocation failed!!");
+                        throw allocation_failed();
+                    }
+
                     mode = MemoryAllocationMode::NATIVE;
                 }
+
+
+                allocated = allocationSize;
             }
 #ifndef NDEBUG
-            if (newSize == 0) {
-                view = {};
-            }else {
-                std::ranges::fill_n(raw, newSize, Pod{});
-                view = std::span(raw, newSize);
-            }
+            if (raw != nullptr)
+                std::ranges::fill_n(raw, allocationSize, static_cast<std::byte>(0));
 #endif
             sizeUsed = newSize;
         }
+
+
+        template<typename Pod>
+            requires std::is_trivially_copyable_v<Pod>
+        Pod *interpret() {
+            return reinterpret_cast<Pod *>(raw);
+        }
     };
-}
+} // namespace merutilm::rff2

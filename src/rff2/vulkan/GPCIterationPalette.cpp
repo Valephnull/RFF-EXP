@@ -54,6 +54,7 @@ namespace merutilm::rff2 {
         appendDescriptor<DescTime>(SET_TIME, descriptors);
         appendDescriptor<DescBatchResult>(SET_BATCH_RESULT, descriptors);
         appendDescriptor<DescSmoothZoom>(SET_SMOOTH_ZOOM, descriptors);
+        appendDescriptor<DescIterationSnapshotVariant>(SET_SNAPSHOT, descriptors);
         appendDescriptor<DescSampling>(SET_SAMPLING, descriptors);
     }
 } // namespace merutilm::rff2

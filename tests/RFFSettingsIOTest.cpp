@@ -10,7 +10,7 @@ namespace {
     Settings makeSettings() {
         return Settings{
                 .fractal = {
-                        .general = {.bailout = 4.0f, .logZoom = 12.5f, .threads = 1},
+                        .general = {.bailout = 4.0f, .logZoom = 12.5, .threads = 1},
                         .reference = {
                                 .center = fixed_point_complex("-0.743643887037151", "0.13182590420533",
                                                                  Perturbator::logZoomToExp10(12.5f)),
@@ -38,7 +38,7 @@ namespace {
                 .render = {
                         .display = {.clarityMultiplier = 1.75f,
                                     .fps = 144.0f,
-                                    .pixelRenderPriority = RndPixelRenderPriority::SWIZZLE},
+                                    .blockSize = 32},
                         .computeShader = {.use = true,
                                           .preferredBatchDuration = 0.25f,
                                           .allowedGlitchPixelCount = 42,
@@ -47,6 +47,7 @@ namespace {
                                           .interpolateIsolated = true}},
                 .shader = {
                         .palette = {.colors = {{0.1f, 0.2f, 0.3f, 1.0f}, {0.8f, 0.7f, 0.6f, 1.0f}},
+                                    .interiorColor = {0.01f, 0.02f, 0.03f, 1.0f},
                                     .iterationColoring = ShdIterationColoringMethod::LOG,
                                     .singleIterationColoring = ShdPalSingleIterationColoringMethod::REVERSED,
                                     .iterationInterval = 17.0f,
@@ -59,11 +60,20 @@ namespace {
                                    .offset = 0.2f,
                                    .animationSpeed = 0.5f,
                                    .iterationColoring = ShdIterationColoringMethod::SQUARE_ROOT},
-                        .slope = {.depth = 1.0f,
-                                  .reflectionRatio = 0.3f,
-                                  .opacity = 0.6f,
-                                  .zenith = 45.0f,
-                                  .azimuth = 120.0f},
+                        .surface = {.depth = 1.0f,
+                                    .shadowBrightness = 0.3f,
+                                    .shadowOpacity = 0.6f,
+                                    .lightZenith = 45.0f,
+                                    .lightAzimuth = 120.0f,
+                                    .lightSharpness = 64.0f,
+                                    .lightStrength = 0.8f,
+                                    .distortionStrength = 0.2f,
+                                    .reflectionRatio = 0.04f,
+                                    .refractionRatio = 1.5f,
+                                    .waveFrequency = 1.0f,
+                                    .waveOffset = {0.1f, 0.2f},
+                                    .waveSpeed = 1.0f,
+                                    .waveStrength = 0.5f},
                         .color = {.gamma = 1.1f,
                                   .exposure = 0.2f,
                                   .hue = 0.3f,

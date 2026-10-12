@@ -8,8 +8,8 @@
 #include "../preset/shader/color/ShdColorPresets.hpp"
 #include "../preset/shader/fog/ShdFogPresets.hpp"
 #include "../preset/shader/palette/ShdPalettePresets.hpp"
-#include "../preset/shader/slope/ShdSlopePresets.hpp"
 #include "../preset/shader/stripe/ShdStripePresets.hpp"
+#include "../preset/shader/surface/ShdSurfacePresets.hpp"
 #include "vulkan_helper/base/vkh.hpp"
 
 namespace merutilm::rff2 {
@@ -17,7 +17,7 @@ namespace merutilm::rff2 {
     const RFFShaderBinary RFFShaderBinary::DEFAULT =
             RFFShaderBinary{ShaderSettings{.palette = ShdPalettePresets::Classic1().genPalette(),
                                            .stripe = ShdStripePresets::Disabled().genStripe(),
-                                           .slope = ShdSlopePresets::Disabled().genSlope(),
+                                           .surface = ShdSurfacePresets::Disabled().genSurface(),
                                            .color = ShdColorPresets::Disabled().genColor(),
                                            .fog = ShdFogPresets::Disabled().genFog(),
                                            .bloom = ShdBloomPresets::Disabled().genBloom(),
@@ -37,19 +37,57 @@ namespace merutilm::rff2 {
             return DEFAULT;
 
         ShaderSettings shaderSettings;
-        auto &palette = shaderSettings.palette;
+
+        readPaletteSettings(in, shaderSettings.palette, version);
+        readStripeSettings(in, shaderSettings.stripe);
+        bool legacyRffExpV2 = false;
+        if (version == 2) {
+            const std::streampos payloadBegin = in.tellg();
+            in.seekg(0, std::ios::end);
+            const std::streamoff remaining = in.tellg() - payloadBegin;
+            in.seekg(payloadBegin);
+
+            // RFF-EXP v2 used the five-float slope layout plus a two-field
+            // sampling payload. Upstream v2 used the larger surface and
+            // three-field noise-reduction layouts. Their fixed tails differ
+            // by 36 bytes, so this preserves both formats without guessing.
+            constexpr std::streamoff LEGACY_RFF_EXP_V2_TAIL =
+                    5 * sizeof(float) + 6 * sizeof(float) + 2 * sizeof(float) +
+                    4 * sizeof(float) + sizeof(bool) + sizeof(uint32_t) +
+                    sizeof(bool) + 5 * sizeof(float);
+            legacyRffExpV2 = remaining == LEGACY_RFF_EXP_V2_TAIL;
+        }
+        readSurfaceSettings(in, shaderSettings.surface, legacyRffExpV2 ? 1 : version);
+        readColorSettings(in, shaderSettings.color);
+        readFogSettings(in, shaderSettings.fog);
+        readBloomSettings(in, shaderSettings.bloom);
+        readSamplingSettings(in, shaderSettings.sampling, version, legacyRffExpV2);
+        readFractal3DSettings(in, shaderSettings.fractal3D);
+
+        return RFFShaderBinary(std::move(shaderSettings));
+    }
+
+    void RFFShaderBinary::readPaletteSettings(std::ifstream &in, ShdPaletteSettings &palette, uint32_t version) {
 
         uint64_t len;
         IOUtilities::readAndDecode(in, &len);
+
         palette.colors.resize(len);
         IOUtilities::readAndDecode(in, &palette.colors);
+        if (version <= 3) {
+            palette.interiorColor = glm::vec4{0, 0, 0, 1};
+        } else {
+            IOUtilities::readAndDecode(in, &palette.interiorColor);
+        }
         IOUtilities::readAndDecode(in, &palette.iterationColoring);
         IOUtilities::readAndDecode(in, &palette.singleIterationColoring);
         IOUtilities::readAndDecode(in, &palette.iterationInterval);
         IOUtilities::readAndDecode(in, &palette.offsetRatio);
         IOUtilities::readAndDecode(in, &palette.animationSpeed);
+    }
 
-        auto &stripe = shaderSettings.stripe;
+    void RFFShaderBinary::readStripeSettings(std::ifstream &in, ShdStripeSettings &stripe) {
+
         IOUtilities::readAndDecode(in, &stripe.stripeType);
         IOUtilities::readAndDecode(in, &stripe.firstInterval);
         IOUtilities::readAndDecode(in, &stripe.secondInterval);
@@ -57,34 +95,74 @@ namespace merutilm::rff2 {
         IOUtilities::readAndDecode(in, &stripe.offset);
         IOUtilities::readAndDecode(in, &stripe.animationSpeed);
         IOUtilities::readAndDecode(in, &stripe.iterationColoring);
+    }
 
-        auto &slope = shaderSettings.slope;
-        IOUtilities::readAndDecode(in, &slope.depth);
-        IOUtilities::readAndDecode(in, &slope.reflectionRatio);
-        IOUtilities::readAndDecode(in, &slope.opacity);
-        IOUtilities::readAndDecode(in, &slope.zenith);
-        IOUtilities::readAndDecode(in, &slope.azimuth);
+    void RFFShaderBinary::readSurfaceSettings(std::ifstream &in, ShdSurfaceSettings &surface, uint32_t version) {
 
-        auto &color = shaderSettings.color;
+        IOUtilities::readAndDecode(in, &surface.depth);
+        IOUtilities::readAndDecode(in, &surface.shadowBrightness);
+        IOUtilities::readAndDecode(in, &surface.shadowOpacity);
+        IOUtilities::readAndDecode(in, &surface.lightZenith);
+        IOUtilities::readAndDecode(in, &surface.lightAzimuth);
+
+        if (version <= 1) {
+            surface.lightSharpness = 64;
+            surface.lightStrength = 0;
+            surface.distortionStrength = 0;
+            surface.reflectionRatio = 0.04f;
+            surface.refractionRatio = 1.5f;
+            surface.waveFrequency = 1;
+        } else {
+            IOUtilities::readAndDecode(in, &surface.lightSharpness);
+            IOUtilities::readAndDecode(in, &surface.lightStrength);
+            IOUtilities::readAndDecode(in, &surface.distortionStrength);
+            IOUtilities::readAndDecode(in, &surface.reflectionRatio);
+            IOUtilities::readAndDecode(in, &surface.refractionRatio);
+            IOUtilities::readAndDecode(in, &surface.waveFrequency);
+        }
+
+        if (version <= 2) {
+            surface.waveOffset = {};
+        } else {
+            IOUtilities::readAndDecode(in, &surface.waveOffset);
+        }
+
+        if (version <= 1) {
+            surface.waveSpeed = 1;
+            surface.waveStrength = 0;
+        } else {
+            IOUtilities::readAndDecode(in, &surface.waveSpeed);
+            IOUtilities::readAndDecode(in, &surface.waveStrength);
+        }
+    }
+
+    void RFFShaderBinary::readColorSettings(std::ifstream &in, ShdColorSettings &color) {
+
         IOUtilities::readAndDecode(in, &color.gamma);
         IOUtilities::readAndDecode(in, &color.exposure);
         IOUtilities::readAndDecode(in, &color.hue);
         IOUtilities::readAndDecode(in, &color.saturation);
         IOUtilities::readAndDecode(in, &color.brightness);
         IOUtilities::readAndDecode(in, &color.contrast);
+    }
 
-        auto &fog = shaderSettings.fog;
+    void RFFShaderBinary::readFogSettings(std::ifstream &in, ShdFogSettings &fog) {
+
         IOUtilities::readAndDecode(in, &fog.radius);
         IOUtilities::readAndDecode(in, &fog.opacity);
+    }
 
-        auto &bloom = shaderSettings.bloom;
+    void RFFShaderBinary::readBloomSettings(std::ifstream &in, ShdBloomSettings &bloom) {
+
         IOUtilities::readAndDecode(in, &bloom.threshold);
         IOUtilities::readAndDecode(in, &bloom.radius);
         IOUtilities::readAndDecode(in, &bloom.softness);
         IOUtilities::readAndDecode(in, &bloom.intensity);
+    }
 
-        auto &sampling = shaderSettings.sampling;
-        if (version == 1) {
+    void RFFShaderBinary::readSamplingSettings(std::ifstream &in, ShdSamplingSettings &sampling,
+                                               const uint32_t version, const bool legacyRffExpV2) {
+        if (version < 5 && !legacyRffExpV2) {
             bool oldUse = false;
             uint32_t oldSimilarCountThreshold = 0;
             float oldDifferenceThreshold = 0;
@@ -97,25 +175,25 @@ namespace merutilm::rff2 {
             IOUtilities::readAndDecode(in, &sampling.bilinear);
             IOUtilities::readAndDecode(in, &sampling.sampleCount);
         }
+    }
 
-        auto &fractal3d = shaderSettings.fractal3D;
+    void RFFShaderBinary::readFractal3DSettings(std::ifstream &in, ShdFractal3DSettings &fractal3d) {
+
         IOUtilities::readAndDecode(in, &fractal3d.use);
         IOUtilities::readAndDecode(in, &fractal3d.altitude);
         IOUtilities::readAndDecode(in, &fractal3d.rotation);
         IOUtilities::readAndDecode(in, &fractal3d.distance);
         IOUtilities::readAndDecode(in, &fractal3d.baseIteration);
         IOUtilities::readAndDecode(in, &fractal3d.depthDivisor);
-
-
-        return RFFShaderBinary(std::move(shaderSettings));
-
     }
+
 
     void RFFShaderBinary::write(std::ofstream &out) const {
 
         const auto &palette = shaderSettings.palette;
         IOUtilities::encodeAndWrite(out, palette.colors.size());
         IOUtilities::encodeAndWrite(out, palette.colors);
+        IOUtilities::encodeAndWrite(out, palette.interiorColor);
         IOUtilities::encodeAndWrite(out, palette.iterationColoring);
         IOUtilities::encodeAndWrite(out, palette.singleIterationColoring);
         IOUtilities::encodeAndWrite(out, palette.iterationInterval);
@@ -131,12 +209,22 @@ namespace merutilm::rff2 {
         IOUtilities::encodeAndWrite(out, stripe.animationSpeed);
         IOUtilities::encodeAndWrite(out, stripe.iterationColoring);
 
-        const auto &slope = shaderSettings.slope;
-        IOUtilities::encodeAndWrite(out, slope.depth);
-        IOUtilities::encodeAndWrite(out, slope.reflectionRatio);
-        IOUtilities::encodeAndWrite(out, slope.opacity);
-        IOUtilities::encodeAndWrite(out, slope.zenith);
-        IOUtilities::encodeAndWrite(out, slope.azimuth);
+        const auto &surface = shaderSettings.surface;
+        IOUtilities::encodeAndWrite(out, surface.depth);
+        IOUtilities::encodeAndWrite(out, surface.shadowBrightness);
+        IOUtilities::encodeAndWrite(out, surface.shadowOpacity);
+        IOUtilities::encodeAndWrite(out, surface.lightZenith);
+        IOUtilities::encodeAndWrite(out, surface.lightAzimuth);
+        IOUtilities::encodeAndWrite(out, surface.lightSharpness);
+        IOUtilities::encodeAndWrite(out, surface.lightStrength);
+        IOUtilities::encodeAndWrite(out, surface.distortionStrength);
+        IOUtilities::encodeAndWrite(out, surface.reflectionRatio);
+        IOUtilities::encodeAndWrite(out, surface.refractionRatio);
+        IOUtilities::encodeAndWrite(out, surface.waveFrequency);
+        IOUtilities::encodeAndWrite(out, surface.waveOffset);
+        IOUtilities::encodeAndWrite(out, surface.waveSpeed);
+        IOUtilities::encodeAndWrite(out, surface.waveStrength);
+
 
         const auto &color = shaderSettings.color;
         IOUtilities::encodeAndWrite(out, color.gamma);

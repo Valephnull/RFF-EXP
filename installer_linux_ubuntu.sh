@@ -65,10 +65,14 @@ fi
     libglm-dev \
     libgmp-dev \
     libgtk-3-dev \
+    libavcodec-dev \
+    libavformat-dev \
+    libavutil-dev \
     libopencv-dev \
     libssl-dev \
     libvulkan-dev \
     glslc \
+    ffmpeg \
     ninja-build \
     pkg-config \
     python3-venv

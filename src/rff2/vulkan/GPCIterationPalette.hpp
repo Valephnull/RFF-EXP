@@ -14,7 +14,8 @@ namespace merutilm::rff2 {
         static constexpr uint32_t SET_TIME = 2;
         static constexpr uint32_t SET_BATCH_RESULT = 3;
         static constexpr uint32_t SET_SMOOTH_ZOOM = 4;
-        static constexpr uint32_t SET_SAMPLING = 5;
+        static constexpr uint32_t SET_SNAPSHOT = 5;
+        static constexpr uint32_t SET_SAMPLING = 6;
 
         static constexpr uint32_t SPECIALIZATION_PERTURBATION_MAIN_ITERATOR = 0;
 

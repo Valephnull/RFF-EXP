@@ -75,41 +75,6 @@ namespace merutilm::rff2::Utilities {
         return split;
     }
 
-    template<typename Enum>
-        requires std::is_enum_v<Enum>
-    static bool imguiDropdown(const char *label, Enum *currentValue) {
-        static const std::vector<Enum> values = Selectable::values<Enum>();
-        static std::vector<const char *> valueStr;
-        valueStr.reserve(values.size());
-
-        const bool newlyAdded = valueStr.empty();
-
-        int valueIndex = 0;
-        for (int i = 0; i < values.size(); ++i) {
-            if (newlyAdded)
-                valueStr.push_back(Selectable::toString(values[i]));
-            if (*currentValue == values[i]) {
-                valueIndex = i;
-            }
-        }
-
-        const bool result = ImGui::Combo(label, &valueIndex, valueStr.data(), static_cast<int>(valueStr.size()));
-        if (result) {
-            *currentValue = static_cast<Enum>(values[valueIndex]);
-        }
-        return result;
-    }
-
-    static void imguiHelpMarker(const char *desc) {
-        ImGui::SameLine();
-        ImGui::TextDisabled("(?)");
-
-        if (ImGui::IsItemHovered()) {
-            ImGui::BeginTooltip();
-            ImGui::TextUnformatted(desc);
-            ImGui::EndTooltip();
-        }
-    }
 
     static std::string formatByte(const size_t size) {
         const uint64_t k = 1024;

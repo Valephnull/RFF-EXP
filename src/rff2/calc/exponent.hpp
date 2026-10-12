@@ -7,8 +7,10 @@
 #include <format>
 #include <numbers>
 #include <string>
+#include <ostream>
 
 #include "../constants/Constants.hpp"
+#include "rff_constraints.hpp"
 #include "templates.hpp"
 
 namespace merutilm::rff2 {
@@ -35,8 +37,8 @@ namespace merutilm::rff2 {
         static constexpr uint32_t SGN_MANTISSA_MASK = 0x807fffffU;
         static constexpr uint32_t NORMALIZED_EXP_BITS = 0x3f000000U;
         static constexpr int NORMALIZED_EXP_SUB = 0x007e;
-        static constexpr float NORMALIZE_CONSTANT_MAX = 1e9;
-        static constexpr float NORMALIZE_CONSTANT_MIN = 1e-9;
+        static constexpr float NORMALIZE_CONSTANT_MAX = 1e9f;
+        static constexpr float NORMALIZE_CONSTANT_MIN = 1e-9f;
         static constexpr int MANTISSA_BIT_COUNT = 23;
     };
 
@@ -71,6 +73,7 @@ namespace merutilm::rff2 {
 
 
         static Mantissa ldexp_neg(const Mantissa mantissa, const Exp exp2) {
+            RFF_ASSERT(exp2 <= 0);
             const auto mts_bits = std::bit_cast<Bit>(mantissa);
             const auto mts_ubits = mts_bits & exp_traits<Mantissa>::EXP_MANTISSA_MASK;
             const auto f_shift = static_cast<int>(mts_ubits >> exp_traits<Mantissa>::MANTISSA_BIT_COUNT) + exp2;
@@ -88,6 +91,7 @@ namespace merutilm::rff2 {
 
         static exponent nth_root(const exponent v, const int d) {
             // valid when d < 32, v.mantissa > 0
+            RFF_ASSERT(d < 32 && v.mantissa > 0);
             const int64_t k = (v.exp2 % d + d) % d;
             const int64_t exp2 = v.exp2 - k;
             Mantissa mantissa = std::pow(v.mantissa * (1u << k), 1.0 / d);
@@ -328,16 +332,16 @@ namespace merutilm::rff2 {
             // = exp10 = log10(2) * n
             //
             const double raw_exp10 = std::numbers::ln2 / std::numbers::ln10 * static_cast<double>(exp2);
-            auto exp10 = static_cast<int>(raw_exp10);
+            auto exp10 = static_cast<int64_t>(raw_exp10);
             double mantissa10 = mantissa * std::pow(10, raw_exp10 - exp10);
             const double abs_m = std::abs(mantissa10);
 
             if (abs_m >= 10.0) {
-                const int shift = static_cast<int>(std::floor(std::log10(abs_m)));
+                const auto shift = static_cast<int64_t>(std::floor(std::log10(abs_m)));
                 mantissa10 *= std::pow(10.0, -shift);
                 exp10 += shift;
             } else if (abs_m < 1.0) {
-                const int shift = static_cast<int>(std::ceil(-std::log10(abs_m)));
+                const auto shift = static_cast<int64_t>(std::ceil(-std::log10(abs_m)));
                 mantissa10 *= std::pow(10.0, shift);
                 exp10 -= shift;
             }
@@ -359,6 +363,10 @@ namespace merutilm::rff2 {
                 mts < exp_traits<Mantissa>::NORMALIZE_CONSTANT_MIN) {
                 normalize();
             }
+        }
+
+        friend std::ostream &operator<<(std::ostream &out, const exponent &obj) {
+            return out << obj.to_string();
         }
     };
 

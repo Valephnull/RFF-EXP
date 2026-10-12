@@ -12,6 +12,7 @@
 #include "../vulkan/RenderGraph1.hpp"
 #include "../vulkan/RenderGraph3.hpp"
 #include "../vulkan/RenderGraph4.hpp"
+#include "../vulkan/RenderGraph5.hpp"
 #include "../vulkan/RenderGraphDownsampleForBlur.hpp"
 #include "../vulkan/RenderGraphPresentPrepareImgui.hpp"
 #include "ZoomAnimationInfo.hpp"
@@ -27,18 +28,23 @@ namespace merutilm::rff2 {
         const Settings &settings;
         const ZoomAnimationInfo &zoomAnimationInfo;
 
-        vkh::RenderContext *rc0 = nullptr;
+#ifdef USE_EXPERIMENTAL_3D
         vkh::RenderContext *rc1 = nullptr;
+        RenderGraph1 *rg1 = nullptr;
+#endif
+
+        vkh::RenderContext *rc0 = nullptr;
         vkh::RenderContext *rcDownsample = nullptr;
         vkh::RenderContext *rc3 = nullptr;
         vkh::RenderContext *rc4 = nullptr;
+        vkh::RenderContext *rc5 = nullptr;
         vkh::RenderContext *rcPresent = nullptr;
 
         RenderGraph0 *rg0 = nullptr;
-        RenderGraph1 *rg1 = nullptr;
         RenderGraphDownsampleForBlur *rccDownsample = nullptr;
         RenderGraph3 *rg3 = nullptr;
         RenderGraph4 *rg4 = nullptr;
+        RenderGraph5 *rg5 = nullptr;
         RenderGraphPresentPrepareImgui *rccPresentPrepare = nullptr;
 
         CPCIterate<float> *computeIterateFloat = nullptr;
@@ -48,7 +54,8 @@ namespace merutilm::rff2 {
 
 
         std::unique_ptr<SharedDescriptorStorage> descriptorStorage = nullptr;
-        std::unique_ptr<GraphicsMatrixBuffer<double>> visibleIterationBufferContext = nullptr;
+        std::unique_ptr<GraphicsMatrixBuffer<double>> visibleIterationBufferData = nullptr;
+
         bool updateStagingBuffer;
 
         template<typename F>
@@ -91,6 +98,7 @@ namespace merutilm::rff2 {
                                                                      settings.render.display.clarityMultiplier);
                     },
                     swapchainImageContextGetter);
+#ifdef USE_EXPERIMENTAL_3D
             rc1 = vkh::RenderContextUtils::attachRenderContext<RenderGraph1>(
                     &rg1, configurators, engine, wc,
                     [this] {
@@ -98,6 +106,7 @@ namespace merutilm::rff2 {
                                                                      settings.render.display.clarityMultiplier);
                     },
                     swapchainImageContextGetter);
+#endif
             rcDownsample = vkh::RenderContextUtils::attachRenderContext<RenderGraphDownsampleForBlur>(
                     &rccDownsample, configurators, engine, wc,
                     [this] {
@@ -119,6 +128,13 @@ namespace merutilm::rff2 {
                                                                      settings.render.display.clarityMultiplier);
                     },
                     swapchainImageContextGetter);
+            rc5 = vkh::RenderContextUtils::attachRenderContext<RenderGraph5>(
+                    &rg5, configurators, engine, wc,
+                    [this] {
+                        return RendererUtils::getInternalImageExtent(wc.getSwapchain().getSwapchainExtent(),
+                                                                     settings.render.display.clarityMultiplier);
+                    },
+                    swapchainImageContextGetter);
             rcPresent = vkh::RenderContextUtils::attachRenderContext<RenderGraphPresentPrepareImgui>(
                     &rccPresentPrepare, configurators, engine, wc,
                     [this] { return wc.getSwapchain().getSwapchainExtent(); }, swapchainImageContextGetter);
@@ -129,15 +145,16 @@ namespace merutilm::rff2 {
 
         void beforeCmdRender() override {
             RendererImGui::beforeCmdRender();
-            const float mul = std::pow(10.0f, -zoomAnimationInfo.targetLogZoomOffset);
+            const auto mouseAdditionalZoom = static_cast<float>(std::pow(10.0, -zoomAnimationInfo.targetLogZoomOffset));
+            const auto mouseOffset = (zoomAnimationInfo.targetMouseZoomOffset - glm::vec2{0.5, 0.5}) + zoomAnimationInfo.targetMouseDragOffset;
 
             descriptorStorage->time->setToCurrentTime(frameIndex);
-            descriptorStorage->slope->set(settings.shader.slope, mul, frameIndex);
+            descriptorStorage->surface->set(settings.shader.surface, mouseAdditionalZoom, mouseOffset, frameIndex);
 
             computeBoxBlur->setBlurInfo(CPCBoxBlur::DESC_INDEX_BLUR_TARGET_FOG,
-                                        std::min(1.0f, settings.shader.fog.radius * mul), frameIndex);
+                                        std::min(1.0f, settings.shader.fog.radius * mouseAdditionalZoom), frameIndex);
             computeBoxBlur->setBlurInfo(CPCBoxBlur::DESC_INDEX_BLUR_TARGET_BLOOM,
-                                        std::min(1.0f, settings.shader.bloom.radius * mul), frameIndex);
+                                        std::min(1.0f, settings.shader.bloom.radius * mouseAdditionalZoom), frameIndex);
         }
 
 
@@ -152,7 +169,7 @@ namespace merutilm::rff2 {
             if (updateStagingBuffer) {
                 updateStagingBuffer = false;
 
-                descriptorStorage->iteration->cmdRefreshIterations(commandBuffer, visibleIterationBufferContext->getContext());
+                descriptorStorage->iteration->cmdRefreshIterations(commandBuffer, visibleIterationBufferData->getContext());
                 auto &ctx = descriptorStorage->iteration->getResultIterationBuffer();
                 vkh::BarrierUtils::cmdBufferMemoryBarrier(commandBuffer.getCommandBufferHandle(), VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
                                                           ctx.buffer, 0, ctx.bufferSize, VK_PIPELINE_STAGE_TRANSFER_BIT,
@@ -162,13 +179,15 @@ namespace merutilm::rff2 {
 
             // [BARRIER] Safe-copy iteration buffer
 
-
+#ifdef USE_EXPERIMENTAL_3D
             if (settings.shader.fractal3D.use) {
                 vkh::RenderPassFullscreenRecorder::cmdFullscreenInternalRenderPass(wc, *rc1, frameIndex);
             } else {
                 vkh::RenderPassFullscreenRecorder::cmdFullscreenInternalRenderPass(wc, *rc0, frameIndex);
             }
-
+#else
+            vkh::RenderPassFullscreenRecorder::cmdFullscreenInternalRenderPass(wc, *rc0, frameIndex);
+#endif
 
             // [IN] EXTERNAL
             // [SUBPASS OUT] PRIMARY (color)
@@ -267,10 +286,21 @@ namespace merutilm::rff2 {
 
             // [BARRIER] SECONDARY
 
+
+            vkh::RenderPassFullscreenRecorder::cmdFullscreenInternalRenderPass(wc, *rc5, frameIndex);
+            // [IN] SECONDARY
+            // [OUT] PRIMARY
+
+            vkh::BarrierUtils::cmdSynchronizeImageWriteToRead(
+                    commandBuffer.getCommandBufferHandle(), mfg(SharedImageContextIndices::MF_MAIN_RENDER_IMAGE_PRIMARY),
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                    VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+
+            // [BARRIER] PRIMARY
+
             vkh::RenderPassFullscreenRecorder::cmdFullscreenForSwapchainRenderPass(wc, *rcPresent, frameIndex,
                                                                                    swapchainImageIndex);
-
-            // [IN] SECONDARY
+            // [IN] PRIMARY
             // [OUT] EXTERNAL
 
             vkh::BarrierUtils::cmdOverlaySwapchain(wc.getCommandBufferGroup().getCommandBuffer(frameIndex).getCommandBufferHandle(),
@@ -279,6 +309,6 @@ namespace merutilm::rff2 {
             RendererImGui::cmdRender(swapchainImageIndex);
         }
 
-        void cleanup() override { visibleIterationBufferContext = nullptr; }
+        void cleanup() override { visibleIterationBufferData = nullptr; }
     };
 } // namespace merutilm::rff2

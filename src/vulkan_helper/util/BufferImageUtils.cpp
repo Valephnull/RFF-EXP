@@ -75,7 +75,8 @@ namespace merutilm::vkh {
             logger::log_err_silent("GPU Memory is fully used. using fallback allocation");
             allocInfo.memoryTypeIndex =
                     findMemoryTypeIndex(memProperties, memRequirements.memoryTypeBits,
-                                        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT);
+                                        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
+                                                VK_MEMORY_PROPERTY_HOST_CACHED_BIT);
             result = vkAllocateMemory(device, &allocInfo, nullptr, memory);
         }
 
@@ -191,11 +192,16 @@ namespace merutilm::vkh {
                                                    const uint32_t memoryTypeBits,
                                                    const VkMemoryPropertyFlags properties) {
         for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
-            if ((memoryTypeBits & 1u << i) != 0 && // check memory type is equal
+            if ((memoryTypeBits & (1u << i)) != 0 && // check memory type is equal
                 (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
                 // check the "propertyFlags" is completely contains "properties"
                 return i;
             }
+        }
+
+        if (properties & VK_MEMORY_PROPERTY_HOST_CACHED_BIT) {
+            logger::log_err_silent("No suitable host-cached memory type found. Falling back to allocation without HOST_CACHED");
+            return findMemoryTypeIndex(memProperties, memoryTypeBits, properties & ~VK_MEMORY_PROPERTY_HOST_CACHED_BIT);
         }
 
         throw exception_init("failed to find suitable memory type!");
