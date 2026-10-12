@@ -44,10 +44,14 @@ int main() {
     if (!expect(decoded.hasValidIterations(), "A valid encoded map did not round-trip"))
         return 2;
 
-    const RFFDynamicMapBinary interrupted(42.0f, 7, 100, {1.0, 0.0, 3.0, 4.0}, 2, 2);
-    if (!expect(interrupted.hasData() && !interrupted.hasValidIterations(),
-                "An interrupted-compute zero was not detected"))
+    const RFFDynamicMapBinary validWithZero(42.0f, 7, 100, {1.0, 0.0, 3.0, 4.0}, 2, 2);
+    if (!expect(validWithZero.hasValidIterations(), "A valid map containing a zero-valued pixel was rejected"))
         return 3;
+
+    const RFFDynamicMapBinary uninitialized(42.0f, 7, 100, {0.0, 0.0, 0.0, 0.0}, 2, 2);
+    if (!expect(uninitialized.hasData() && !uninitialized.hasValidIterations(),
+                "An entirely uninitialized map was accepted"))
+        return 8;
 
     const RFFDynamicMapBinary negative(42.0f, 7, 100, {1.0, -2.0, 3.0, 4.0}, 2, 2);
     if (!expect(!negative.hasValidIterations(), "A negative iteration was not detected"))

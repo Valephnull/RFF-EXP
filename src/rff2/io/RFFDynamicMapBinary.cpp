@@ -161,13 +161,19 @@ namespace merutilm::rff2 {
             return false;
         constexpr uint64_t SIGN = uint64_t{1} << 63;
         constexpr uint64_t EXPONENT = uint64_t{0x7ff} << 52;
+        bool containsCompletedPixel = false;
         for (const double iteration: iterations) {
             const uint64_t bits = std::bit_cast<uint64_t>(iteration);
-            if ((bits & SIGN) != 0 || (bits & EXPONENT) == EXPONENT || (bits & ~SIGN) == 0 ||
+            if ((bits & SIGN) != 0 || (bits & EXPONENT) == EXPONENT ||
                 iteration > static_cast<double>(maxIteration))
                 return false;
+            containsCompletedPixel |= (bits & ~SIGN) != 0;
         }
-        return true;
+        // A zero can be a legitimate iteration value, particularly in wide,
+        // early keyframes.  An entirely zero-filled buffer is still rejected
+        // as an uninitialized or interrupted result.  Render-pool maps are
+        // only submitted after RFF reports that the render completed.
+        return containsCompletedPixel;
     }
 
     RFFDynamicMapBinary RFFDynamicMapBinary::readByID(const std::filesystem::path &dir, const uint32_t id) {

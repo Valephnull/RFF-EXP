@@ -957,6 +957,8 @@ namespace merutilm::rff2 {
                     return;
                 if (workerJob && workerJob->id == jobId)
                     workerJob->frameCount = total;
+                if (!workerJobRunning)
+                    queuedTask.reset();
                 return;
             }
             if (event.messageType == RenderPoolMessageType::FRAME_STATES) {
@@ -1115,6 +1117,12 @@ namespace merutilm::rff2 {
         }
 
         void updateLocalRenderer(RFF2 &app) {
+            if (role == PoolRole::WORKER && !workerJobRunning && localTask) {
+                restoreLocalState(app);
+                status = "The host cancelled keyframe rendering";
+                return;
+            }
+
             const bool pauseActiveRender = localTask && ((isCoordinator() && hostJob && hostJob->paused) ||
                                                          (role == PoolRole::WORKER && workerJobPaused));
             if (pauseActiveRender)
@@ -1216,6 +1224,36 @@ namespace merutilm::rff2 {
             clipper.End();
         }
 
+        void cancelCoordinatorJob(RFF2 &app, const bool localOnly) {
+            if (!hostJob)
+                return;
+
+            hostJob->running = false;
+            hostJob->paused = false;
+            for (auto &frame: hostJob->frames) {
+                if (frame.state == RenderPoolFrameState::COMPLETE || frame.state == RenderPoolFrameState::FAILED)
+                    continue;
+                frame.state = RenderPoolFrameState::WAITING;
+                frame.workerId = 0;
+                frame.workerName.clear();
+                frame.error.clear();
+            }
+
+            if (!localOnly) {
+                network.broadcast(RenderPoolMessageType::JOB_STATE, encodeJobState(*hostJob));
+                network.broadcast(RenderPoolMessageType::FRAME_STATES,
+                                  encodeFrameStates(hostJob->manifest.id, hostJob->frames));
+            }
+
+            if (localTask || savedSettings) {
+                app.getState().resume();
+                app.getState().cancel();
+                restoreLocalState(app);
+            }
+            status = localOnly ? "Keyframe rendering cancelled; completed files were kept"
+                               : "Render-pool rendering cancelled; completed files were kept";
+        }
+
         void drawCoordinatorJob(RFF2 &app, const bool localOnly) {
             const bool hasCurrentJob = hostJob && (localOnly ? role == PoolRole::LOCAL : role == PoolRole::HOST);
             if (!hasCurrentJob) {
@@ -1252,6 +1290,8 @@ namespace merutilm::rff2 {
                 else
                     status = hostJob->paused ? "All render-pool computers are paused" : "Render-pool rendering resumed";
             }
+            if (hostJob->running && ImGui::Button("Cancel Rendering", ImVec2(-FLT_MIN, 0)))
+                cancelCoordinatorJob(app, localOnly);
             if (hostJob->running && ImGui::Button("Recalculate Reference Next Keyframe", ImVec2(-FLT_MIN, 0))) {
                 ++referenceGeneration;
                 status = localOnly ? "The next keyframe will recalculate its reference"
