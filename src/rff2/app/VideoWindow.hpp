@@ -20,6 +20,12 @@ namespace merutilm::rff2 {
         const int width;
         const int height;
         bool ownsWindowContext = false;
+        std::filesystem::path inputDirectory;
+        std::filesystem::path outputFile;
+        Settings targetSettings;
+        uint32_t imageWidth = 0;
+        uint32_t imageHeight = 0;
+        uint32_t dynamicFrameCount = 0;
 
 
     public:
@@ -39,7 +45,14 @@ namespace merutilm::rff2 {
         static void createVideo(RFF2 &app, const std::filesystem::path &open,
                                 const std::filesystem::path &save, const Settings &settingsClone);
 
-        static cv::Mat generateFrame(const VideoBufferCache &buffer, int imgWidth, bool showText);
+        [[nodiscard]] static std::shared_ptr<VideoWindow> prepareVideo(
+                RFF2 &app, const std::filesystem::path &open,
+                const std::filesystem::path &save, const Settings &settingsClone);
+
+        void renderVideo();
+
+        static cv::Mat generateFrame(const VideoBufferCache &buffer, int imgWidth,
+                                     const VidAnimationSettings &animation);
 
     protected:
         void initScene(const VkExtent2D &videoExtent, const Settings &targetSettings);

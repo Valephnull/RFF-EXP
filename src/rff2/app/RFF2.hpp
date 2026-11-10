@@ -34,6 +34,8 @@
 #include "vulkan_helper/engine/executor/ScopedCommandBufferExecutor.hpp"
 
 namespace merutilm::rff2 {
+    class VideoWindow;
+
     class RFF2 final : public vkh::Application {
 
         struct GuidedZoomTarget {
@@ -93,6 +95,9 @@ namespace merutilm::rff2 {
         ZoomAnimationInfo zoomAnimationInfo;
         VideoKeyframeProgressInfo videoKeyframeProgressInfo = {};
         VideoProgressInfo videoProgressInfo = {};
+        // Declared before BackgroundThreads so workers finish before the main-thread
+        // preview window is destroyed during application shutdown.
+        std::shared_ptr<VideoWindow> videoExportWindow;
         BackgroundThreads backgroundThreads = BackgroundThreads();
         AutoExplorer autoExplorer;
         CrashRecovery crashRecovery;
@@ -247,6 +252,8 @@ namespace merutilm::rff2 {
         }
 
         [[nodiscard]] BackgroundThreads &getBackgroundThreads() { return backgroundThreads; }
+
+        [[nodiscard]] std::shared_ptr<VideoWindow> &getVideoExportWindow() { return videoExportWindow; }
 
         [[nodiscard]] RFFDynamicMapBinary generateMap() const {
             return {renderData->fractalSettings.general.logZoom,

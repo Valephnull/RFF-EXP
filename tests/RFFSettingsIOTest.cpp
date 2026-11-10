@@ -92,7 +92,8 @@ namespace {
                         .grid = {.use = true, .subdivision = 4, .spacing = 96, .lineWidth = 2,
                                  .opacity = 0.6f, .color = {0.2f, 0.4f, 0.8f, 1}}},
                 .video = {.data = {.defaultZoomIncrement = 2.5f, .isStatic = true},
-                          .animation = {.overZoom = 1.5f, .showText = false, .mps = 2.0f},
+                          .animation = {.overZoom = 1.5f, .showText = false, .mps = 2.0f,
+                                        .zoomCounterLabel = "Magnification", .zoomCounterFont = 4},
                           .exportation = {.fps = 30.0f, .bitrate = 12000}},
                 .explore = {.autoMoveCursorToCenter = false,
                             .autoAimRadiusPixels = 137,
@@ -130,7 +131,26 @@ int main() {
     assert(loaded.shader.grid.color == original.shader.grid.color);
     assert(loaded.shader.fractal3D.use);
     assert(loaded.video.exportation.bitrate == 12000);
+    assert(loaded.video.animation.zoomCounterLabel == "Magnification");
+    assert(loaded.video.animation.zoomCounterFont == 4);
     assert(loaded.explore.autoAimRadiusPixels == 137);
+
+    // Version 5 configs ended immediately before the counter label/font tail.
+    // They should retain the historical defaults when loaded by version 6.
+    std::filesystem::resize_file(configPath, std::filesystem::file_size(configPath) -
+                                             sizeof(uint64_t) - original.video.animation.zoomCounterLabel.size() -
+                                             sizeof(int32_t));
+    {
+        std::fstream legacy(configPath, std::ios::binary | std::ios::in | std::ios::out);
+        legacy.seekp(sizeof(uint32_t));
+        const uint32_t version = 5;
+        legacy.write(reinterpret_cast<const char *>(&version), sizeof(version));
+    }
+    loaded.video.animation.zoomCounterLabel = "Should be reset";
+    loaded.video.animation.zoomCounterFont = 7;
+    assert(RFFSettingsIO::loadConfig(configPath, loaded, &width, &height));
+    assert(loaded.video.animation.zoomCounterLabel == "Zoom");
+    assert(loaded.video.animation.zoomCounterFont == 1);
 
     assert(RFFSettingsIO::saveShaderPreset(shaderPath, original.shader));
     ShaderSettings shader = loaded.shader;

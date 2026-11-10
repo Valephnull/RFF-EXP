@@ -35,6 +35,7 @@
 #include "FnShader.hpp"
 #include "FnVideo.hpp"
 #include "IOUtilities.h"
+#include "VideoWindow.hpp"
 #include "imgui.h"
 #include "nfd.hpp"
 #include "opencv2/opencv.hpp"
@@ -182,6 +183,17 @@ namespace merutilm::rff2 {
     }
 
     void RFF2::update() {
+        // Native windows must also be destroyed by the thread that pumps GLFW.
+        // Cleanup is done here instead of in the Video tab so it still happens
+        // immediately when the user has switched to another tab.
+        bool videoExportActive;
+        {
+            std::scoped_lock progressLock(videoProgressInfo.mutex);
+            videoExportActive = videoProgressInfo.active;
+        }
+        if (!videoExportActive && videoExportWindow && videoExportWindow.use_count() == 1)
+            videoExportWindow.reset();
+
         // Coalesce rapid wheel input so rendering does not fall a frame behind
         // the user's latest cursor anchor.
         constexpr double WHEEL_RENDER_DEBOUNCE_SECONDS = 0.09;

@@ -15,6 +15,7 @@
 #include "IOUtilities.h"
 #include "VideoWindow.hpp"
 #include "../util/ImGuiUtils.hpp"
+#include "misc/cpp/imgui_stdlib.h"
 
 
 namespace merutilm::rff2 {
@@ -44,14 +45,22 @@ namespace merutilm::rff2 {
     void FnVideo::animationSettings(RFF2 &app) {
 
         ImGuiUtils::BeginSettings("Animation Settings");
-        auto &[overZoom, showText, mps] = app.getSettings().video.animation;
-        ImGui::InputFloat("Over Zoom", &overZoom);
+        auto &animation = app.getSettings().video.animation;
+        ImGui::InputFloat("Over Zoom", &animation.overZoom);
         ImGuiUtils::HelpMarker("Zoom the final video data.");
 
-        ImGui::Checkbox("Show Text", &showText);
+        ImGui::Checkbox("Show Text", &animation.showText);
         ImGuiUtils::HelpMarker("Show the text on video.");
+        if (animation.showText) {
+            if (ImGui::InputText("Counter Label", &animation.zoomCounterLabel) &&
+                animation.zoomCounterLabel.size() > 128)
+                animation.zoomCounterLabel.resize(128);
+            constexpr const char *FONTS[] = {"Simplex", "Plain", "Duplex", "Complex",
+                                             "Triplex", "Complex Small", "Script Simplex", "Script Complex"};
+            ImGui::Combo("Counter Font", &animation.zoomCounterFont, FONTS, static_cast<int>(std::size(FONTS)));
+        }
 
-        ImGui::InputFloat("Zoom Speed", &mps);
+        ImGui::InputFloat("Zoom Speed", &animation.mps);
         ImGuiUtils::HelpMarker("Sets the zoom speed, Number of Map(.rfm) data used per second in video");
         ImGuiUtils::EndSettings();
     }
@@ -215,6 +224,10 @@ namespace merutilm::rff2 {
             std::scoped_lock lock(progress.mutex);
             exporting = progress.active;
         }
+        // The preview window is created on the main thread. GLFW's native event
+        // queue belongs to this thread; constructing it in the encoder worker caused
+        // Windows to mark the preview as hung after it was clicked.
+        auto &activeVideoWindow = app.getVideoExportWindow();
         ImGui::BeginDisabled(exporting);
         if (ImGui::Button("Export Zooming Video", ImVec2(-FLT_MIN, 0))) {
             auto openPtr = IOUtilities::ioDirectoryDialog();
@@ -230,18 +243,21 @@ namespace merutilm::rff2 {
                 return;
             }
 
+            auto preparedWindow = VideoWindow::prepareVideo(app, *openPtr, *savePtr, app.getSettings());
+            if (!preparedWindow) {
+                ImGui::EndDisabled();
+                return;
+            }
+            activeVideoWindow = preparedWindow;
             {
                 std::scoped_lock lock(progress.mutex);
                 progress.active = true;
                 progress.ratio = 0;
                 progress.remainedTimeStr = "Preparing video...";
             }
-            app.getBackgroundThreads().createThread([&app, settingsClone = app.getSettings(),
-                                                     openPtr = std::move(openPtr),
-                                                     savePtr = std::move(savePtr)](const BackgroundThread &) {
-                const auto &open = *openPtr;
-                const auto &save = *savePtr;
-                VideoWindow::createVideo(app, open, save, settingsClone);
+            app.getBackgroundThreads().createThread([&app, window = std::move(preparedWindow)]
+                                                     (const BackgroundThread &) {
+                window->renderVideo();
                 auto &progress = app.getVideoProgressInfo();
                 std::scoped_lock lock(progress.mutex);
                 progress.active = false;

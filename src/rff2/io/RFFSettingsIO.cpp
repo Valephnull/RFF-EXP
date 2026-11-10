@@ -358,6 +358,8 @@ namespace merutilm::rff2 {
             writer.boolean(settings.file.autoSaveBackup);
             writer.value(fractal.reference.partitionSize);
             writer.boolean(settings.render.simd);
+            writer.text(video.animation.zoomCounterLabel);
+            writer.value(video.animation.zoomCounterFont);
         }
 
         bool readConfigPayload(Reader &reader, Settings &settings, uint32_t &width, uint32_t &height,
@@ -440,6 +442,14 @@ namespace merutilm::rff2 {
 
             if (version >= 4 && (!reader.value(fractal.reference.partitionSize) ||
                                  !reader.boolean(settings.render.simd)))
+                return false;
+
+            video.animation.zoomCounterLabel = "Zoom";
+            video.animation.zoomCounterFont = 1;
+            if (version >= 6 &&
+                (!reader.text(video.animation.zoomCounterLabel, 128) ||
+                 !reader.value(video.animation.zoomCounterFont) ||
+                 video.animation.zoomCounterFont < 0 || video.animation.zoomCounterFont > 7))
                 return false;
 
             const auto allFinite = [](const std::initializer_list<double> values) {

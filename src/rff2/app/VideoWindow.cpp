@@ -81,8 +81,9 @@ namespace merutilm::rff2 {
 
     VideoWindow::~VideoWindow() { VideoWindow::cleanup(); }
 
-    void VideoWindow::createVideo(RFF2 &app, const std::filesystem::path &open,
-                                  const std::filesystem::path &save, const Settings &settingsClone) try {
+    std::shared_ptr<VideoWindow> VideoWindow::prepareVideo(
+            RFF2 &app, const std::filesystem::path &open,
+            const std::filesystem::path &save, const Settings &settingsClone) try {
         uint32_t imgWidth = 0;
         uint32_t imgHeight = 0;
         uint32_t dynamicFrameCount = 0;
@@ -92,12 +93,12 @@ namespace merutilm::rff2 {
 
         if (!isWindow) {
             reportVideoError(app, "The main window no longer exists.");
-            return;
+            return nullptr;
         }
 
         if (app.engine->isValidWindowContext(Constants::VulkanWindow::VIDEO_WINDOW_ATTACHMENT_INDEX)) {
             reportVideoError(app, "A video export is already running.");
-            return;
+            return nullptr;
         }
 
 
@@ -105,7 +106,7 @@ namespace merutilm::rff2 {
             const RFFStaticMapBinary targetMap = RFFStaticMapBinary::readByID(open, 1);
             if (!targetMap.hasData()) {
                 reportVideoError(app, "The selected folder does not contain keyframe 0001.rfsm. Check Static data.");
-                return;
+                return nullptr;
             }
 
             imgWidth = targetMap.width;
@@ -114,7 +115,7 @@ namespace merutilm::rff2 {
             const RFFDynamicMapBinary targetMap = RFFDynamicMapBinary::readByID(open, 1);
             if (!targetMap.hasData()) {
                 reportVideoError(app, "The selected folder does not contain a readable keyframe 0001.rfm. Check Static data.");
-                return;
+                return nullptr;
             }
 
             imgWidth = targetMap.width;
@@ -123,37 +124,65 @@ namespace merutilm::rff2 {
             if (!validateDynamicSequence(open, targetMap.width, targetMap.height, dynamicFrameCount,
                                          validationError)) {
                 reportVideoError(app, validationError);
-                return;
+                return nullptr;
             }
         }
 
         const auto &[defaultZoomIncrement, isStatic] = settingsClone.video.data;
-        const auto &[overZoom, showText, mps] = settingsClone.video.animation;
+        const auto &animation = settingsClone.video.animation;
         const auto &[fps, bitrate] = settingsClone.video.exportation;
-        if (const auto error = validateVideoExport(fps, mps, overZoom, defaultZoomIncrement, imgWidth, imgHeight);
+        if (const auto error = validateVideoExport(fps, animation.mps, animation.overZoom,
+                                                   defaultZoomIncrement, imgWidth, imgHeight);
             !error.empty()) {
             reportVideoError(app, error);
-            return;
+            return nullptr;
         }
 
-        // Check the encoder before creating any additional Vulkan/window resources.
+        const auto cw = static_cast<uint32_t>(std::min(imgWidth, 1280u));
+        const auto ch = cw * imgHeight / imgWidth;
+        auto window = std::make_shared<VideoWindow>(app, static_cast<int>(cw), static_cast<int>(ch));
+        window->inputDirectory = open;
+        window->outputFile = save;
+        window->targetSettings = settingsClone;
+        window->imageWidth = imgWidth;
+        window->imageHeight = imgHeight;
+        window->dynamicFrameCount = dynamicFrameCount;
+        window->initScene(VkExtent2D{imgWidth, imgHeight}, settingsClone);
+        return window;
+    } catch (const std::exception &error) {
+        reportVideoError(app, std::string("Video export setup failed: ") + error.what());
+        return nullptr;
+    } catch (...) {
+        reportVideoError(app, "Video export setup failed with an unknown error.");
+        return nullptr;
+    }
+
+    void VideoWindow::createVideo(RFF2 &app, const std::filesystem::path &open,
+                                  const std::filesystem::path &save, const Settings &settingsClone) {
+        if (auto window = prepareVideo(app, open, save, settingsClone))
+            window->renderVideo();
+    }
+
+    void VideoWindow::renderVideo() try {
+        const auto &open = inputDirectory;
+        const auto &save = outputFile;
+        const auto &[defaultZoomIncrement, isStatic] = targetSettings.video.data;
+        const auto &animation = targetSettings.video.animation;
+        const auto &[fps, bitrate] = targetSettings.video.exportation;
+
         cv::VideoWriter writer;
         writer.open(save.string(), cv::CAP_FFMPEG, cv::VideoWriter::fourcc('a', 'v', 'c', '1'), fps,
-                    cv::Size(static_cast<int>(imgWidth), static_cast<int>(imgHeight)));
+                    cv::Size(static_cast<int>(imageWidth), static_cast<int>(imageHeight)));
         if (!writer.isOpened()) {
             reportVideoError(app, "Could not open the H.264 video encoder/output file. Check the output path and FFmpeg installation.");
             return;
         }
 
-        const auto cw = static_cast<uint32_t>(std::min(imgWidth, 1280u));
-        const auto ch = cw * imgHeight / imgWidth;
-        auto window = VideoWindow(app, static_cast<int>(cw), static_cast<int>(ch));
-        window.initScene(VkExtent2D{imgWidth, imgHeight}, settingsClone);
-        auto &manager = *window.scene;
+        auto &manager = *scene;
         GLFWwindow *handle = manager.getWindowContext().getWindow()->getWindow();
 
         auto &[mutex, ratio, remainedTimeStr, active] = app.getVideoProgressInfo();
-        const double frameInterval = static_cast<double>(mps) / fps;
+        const double frameInterval = static_cast<double>(animation.mps) / fps;
         uint32_t maxNumber;
         if (isStatic) {
             IOUtilities::generateFilename(open, Constants::File::EXT_STATIC_MAP, &maxNumber);
@@ -162,7 +191,7 @@ namespace merutilm::rff2 {
             maxNumber = dynamicFrameCount;
         }
 
-        const double minNumber = -overZoom;
+        const double minNumber = -animation.overZoom;
         double currentFrame = maxNumber;
         double currentSec = 0;
         uint32_t pf1 = UINT32_MAX;
@@ -174,8 +203,8 @@ namespace merutilm::rff2 {
         RFFDynamicMapBinary normalDynamic = RFFDynamicMapBinary::DEFAULT;
         RFFStaticMapBinary zoomedStatic = RFFStaticMapBinary::DEFAULT;
         RFFStaticMapBinary normalStatic = RFFStaticMapBinary::DEFAULT;
-        cv::Mat zoomedStaticImage = cv::Mat::zeros(static_cast<int>(imgHeight), static_cast<int>(imgWidth), CV_16UC4);
-        cv::Mat normalStaticImage = cv::Mat::zeros(static_cast<int>(imgHeight), static_cast<int>(imgWidth), CV_16UC4);
+        cv::Mat zoomedStaticImage = cv::Mat::zeros(static_cast<int>(imageHeight), static_cast<int>(imageWidth), CV_16UC4);
+        cv::Mat normalStaticImage = cv::Mat::zeros(static_cast<int>(imageHeight), static_cast<int>(imageWidth), CV_16UC4);
 
         manager.setStatic(isStatic);
 
@@ -191,7 +220,7 @@ namespace merutilm::rff2 {
                     if (isStatic) {
                         zoomedStatic = RFFStaticMapBinary::DEFAULT;
                         normalStatic = RFFStaticMapBinary::readByID(open, 1);
-                        zoomedStaticImage = cv::Mat::zeros(static_cast<int>(imgHeight), static_cast<int>(imgWidth), CV_16UC4);
+                        zoomedStaticImage = cv::Mat::zeros(static_cast<int>(imageHeight), static_cast<int>(imageWidth), CV_16UC4);
                         normalStaticImage = RFFStaticMapBinary::loadImageByID(open, 1);
                     } else {
                         zoomedDynamic = RFFDynamicMapBinary::DEFAULT;
@@ -239,10 +268,11 @@ namespace merutilm::rff2 {
             manager.setTime(currentSec);
             manager.renderOnce();
             VideoBufferCache buffer = manager.createImage();
-            writer << generateFrame(buffer, static_cast<int>(imgWidth), showText);
+            writer << generateFrame(buffer, static_cast<int>(imageWidth), animation);
 
             const double progressRatio =
-                    (static_cast<double>(maxNumber) - currentFrame) / (static_cast<double>(maxNumber) + overZoom);
+                    (static_cast<double>(maxNumber) - currentFrame) /
+                    (static_cast<double>(maxNumber) + animation.overZoom);
             const double spentSec = std::chrono::duration_cast<std::chrono::duration<double>>(
                                            std::chrono::high_resolution_clock::now().time_since_epoch())
                                            .count() -
@@ -270,10 +300,11 @@ namespace merutilm::rff2 {
     }
 
 
-    cv::Mat VideoWindow::generateFrame(const VideoBufferCache &buffer, const int imgWidth, const bool showText) {
+    cv::Mat VideoWindow::generateFrame(const VideoBufferCache &buffer, const int imgWidth,
+                                       const VidAnimationSettings &animation) {
 
         auto &img = buffer.image;
-        if (showText) {
+        if (animation.showText) {
             const int xg = std::max(1, imgWidth / 72);
             const int yg = std::max(1, imgWidth / 192);
             const int loc = std::max(1, imgWidth / 40);
@@ -281,11 +312,13 @@ namespace merutilm::rff2 {
             const int off = std::max(1, loc / 15);
             const int tkn = std::max(1, off / 2);
 
-            const std::string zoomStr = std::format("Zoom : {:6f}E{:d}", std::pow(10, std::fmod(buffer.logZoom, 1)),
+            const std::string zoomStr = std::format("{} : {:6f}E{:d}", animation.zoomCounterLabel,
+                                                    std::pow(10, std::fmod(buffer.logZoom, 1)),
                                                     static_cast<int64_t>(buffer.logZoom));
-            cv::putText(img, zoomStr, cv::Point(xg + off, loc + yg + off), cv::FONT_HERSHEY_PLAIN, size,
+            const int font = std::clamp(animation.zoomCounterFont, 0, 7);
+            cv::putText(img, zoomStr, cv::Point(xg + off, loc + yg + off), font, size,
                         cv::Scalar(0, 0, 0));
-            cv::putText(img, zoomStr, cv::Point(xg, loc + yg), cv::FONT_HERSHEY_PLAIN, size, cv::Scalar(255, 255, 255),
+            cv::putText(img, zoomStr, cv::Point(xg, loc + yg), font, size, cv::Scalar(255, 255, 255),
                         tkn, cv::LINE_AA);
         }
         return img;
