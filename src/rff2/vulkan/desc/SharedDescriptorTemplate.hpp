@@ -5,6 +5,7 @@
 #pragma once
 #include <memory>
 #include "../../data/ComputeShaderBatchStagingData.hpp"
+#include "../../util/GridCalculator.hpp"
 
 #include "../../mrthy/PA.h"
 #include "vulkan_helper/engine/manage/DescriptorManager.hpp"
@@ -404,6 +405,18 @@ namespace merutilm::rff2::SharedDescriptorTemplate {
             vkh::DescriptorManager descManager;
             descManager.appendSSBO(BINDING_BATCH_RESULT_SSBO, STAGE, std::move(rmBatchResultSSBO));
             managers.emplace_back(std::move(descManager));
+        }
+    };
+
+    struct DescGrid : public vkh::DescriptorTemplate {
+        static constexpr uint32_t ID = 16;
+        void configure(vkh::Core &core, vkh::SharedResource &, std::vector<vkh::DescriptorManager> &managers) override {
+            vkh::HostDataObjectManager host;
+            host.reserve<GridUniform>(0);
+            vkh::DescriptorManager manager;
+            manager.appendUBO(0, VK_SHADER_STAGE_FRAGMENT_BIT,
+                              std::make_unique<vkh::Uniform>(core, std::move(host), vkh::BufferLocalization::BIDIRECTIONAL, true));
+            managers.emplace_back(std::move(manager));
         }
     };
 

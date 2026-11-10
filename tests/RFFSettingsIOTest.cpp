@@ -1,5 +1,6 @@
 #include <cassert>
 #include <filesystem>
+#include <fstream>
 
 #include "rff2/io/RFFSettingsIO.h"
 #include "rff2/mb/Perturbator.h"
@@ -87,7 +88,9 @@ namespace {
                                       .rotation = 12.0f,
                                       .distance = 1.5f,
                                       .baseIteration = 4.0f,
-                                      .depthDivisor = 9.0f}},
+                                      .depthDivisor = 9.0f},
+                        .grid = {.use = true, .subdivision = 4, .spacing = 96, .lineWidth = 2,
+                                 .opacity = 0.6f, .color = {0.2f, 0.4f, 0.8f, 1}}},
                 .video = {.data = {.defaultZoomIncrement = 2.5f, .isStatic = true},
                           .animation = {.overZoom = 1.5f, .showText = false, .mps = 2.0f},
                           .exportation = {.fps = 30.0f, .bitrate = 12000}},
@@ -123,6 +126,8 @@ int main() {
     assert(loaded.shader.palette.colors.size() == 2);
     assert(loaded.shader.palette.colors[1].b == original.shader.palette.colors[1].b);
     assert(loaded.shader.sampling.sampleCount == 32);
+    assert(loaded.shader.grid.use && loaded.shader.grid.subdivision == 4);
+    assert(loaded.shader.grid.color == original.shader.grid.color);
     assert(loaded.shader.fractal3D.use);
     assert(loaded.video.exportation.bitrate == 12000);
     assert(loaded.explore.autoAimRadiusPixels == 137);
@@ -136,6 +141,20 @@ int main() {
     assert(shader.sampling.sampleCount == 32);
     assert(shader.stripe.stripeType == ShdStripeType::SMOOTH);
     assert(shader.fractal3D.depthDivisor == 9.0f);
+    assert(shader.grid.use && shader.grid.spacing == 96 && shader.grid.lineWidth == 2);
+    assert(shader.grid.opacity == original.shader.grid.opacity);
+
+    // v4 presets have the same prefix, with no grid tail. Loading one must
+    // disable any grid from the previously loaded preset.
+    std::filesystem::resize_file(shaderPath, std::filesystem::file_size(shaderPath) - 33);
+    {
+        std::fstream legacy(shaderPath, std::ios::binary | std::ios::in | std::ios::out);
+        legacy.seekp(sizeof(uint32_t));
+        const uint32_t version = 4;
+        legacy.write(reinterpret_cast<const char *>(&version), sizeof(version));
+    }
+    assert(RFFSettingsIO::loadShaderPreset(shaderPath, shader));
+    assert(!shader.grid.use && shader.grid.subdivision == 10);
 
     std::filesystem::remove(configPath);
     std::filesystem::remove(shaderPath);

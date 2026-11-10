@@ -81,6 +81,8 @@ namespace merutilm::rff2 {
         std::atomic<bool> updateFractalFrame = false;
 
         mutable std::shared_mutex renderDataMutex;
+        // Protect location reads by the grid from background Newton/keyframe updates.
+        std::mutex locationMutex;
         std::array<StatusBarInfo, Constants::Status::LENGTH> statusInfos = {};
         std::unique_ptr<MB2RenderDataBase> renderData = nullptr;
         std::unique_ptr<ApproxTableCache> approxTableCache = nullptr;
@@ -225,6 +227,8 @@ namespace merutilm::rff2 {
 
 
         [[nodiscard]] Settings &getSettings() { return settings; }
+
+        [[nodiscard]] std::mutex &getLocationMutex() { return locationMutex; }
 
         [[nodiscard]] const Settings &getSettings() const { return settings; }
 

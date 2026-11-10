@@ -195,6 +195,7 @@ namespace merutilm::rff2 {
                                                             ? "Center search cancelled or did not converge."
                                                             : "Newton zoom cancelled or did not converge.");
                                 } else {
+                                    const std::scoped_lock locationLock(app.getLocationMutex());
                                     settings.fractal.reference.center = result->center;
                                     if (runAction == 1) {
                                         setNewtonStatus("Center found. Rendering centered view...");

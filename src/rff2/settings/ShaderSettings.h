@@ -4,6 +4,7 @@
 #include "ShdFogSettings.h"
 #include "ShdFractal3DSettings.hpp"
 #include "ShdSamplingSettings.hpp"
+#include "ShdGridSettings.hpp"
 #include "ShdPaletteSettings.h"
 #include "ShdStripeSettings.h"
 #include "ShdSurfaceSettings.h"
@@ -19,5 +20,6 @@ namespace merutilm::rff2 {
         ShdBloomSettings bloom;
         ShdSamplingSettings sampling;
         ShdFractal3DSettings fractal3D;
+        ShdGridSettings grid;
     };
 }

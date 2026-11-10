@@ -4,10 +4,12 @@
 // define descriptors
 #define DESC_SMOOTH_ZOOM 1
 #define DESC_ITERATION 2
+#define DESC_GRID 4
 
 // include descriptors
 #include <desc_smooth_zoom.glsl>
 #include <desc_iteration.glsl>
+#include <desc_grid.glsl>
 
 // include utilities
 #include <utils_iteration.glsl>
@@ -37,6 +39,7 @@ void main() {
 
     coord = (coord - 0.5f) / zoom_delta - smooth_zoom_settings.pos_delta + 0.5f;
     color = texture(canvas, coord);
+    color = applyGrid(color, gl_FragCoord.xy, true);
 
     vec2 iter_coord = vec2(coord * iteration_info_settings.extent);
 

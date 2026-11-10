@@ -188,7 +188,10 @@ namespace merutilm::rff2 {
                                 RFFLocationBinary(settings.fractal.general.logZoom, center.real.to_string(),
                                                   center.imag.to_string(), settings.fractal.perturb.maxIteration),
                                 IOUtilities::generateFilename(dir, Constants::File::EXT_LOCATION, nullptr).string());
-                        logZoom -= increment;
+                        {
+                            const std::scoped_lock locationLock(app.getLocationMutex());
+                            logZoom -= increment;
+                        }
                         nextFrame = true;
                     }
                     app.getKeyframeProgressInfo().keyframeGenerating = false;

@@ -3,6 +3,7 @@
 //
 
 #pragma once
+#include <mutex>
 #include "../data/GraphicsMatrixBuffer.h"
 #include "../util/RendererUtils.hpp"
 #include "../vulkan/CPCBoxBlur.hpp"
@@ -26,6 +27,7 @@ namespace merutilm::rff2 {
 
 
         const Settings &settings;
+        std::mutex &locationMutex;
         const ZoomAnimationInfo &zoomAnimationInfo;
 
 #ifdef USE_EXPERIMENTAL_3D
@@ -61,9 +63,9 @@ namespace merutilm::rff2 {
         template<typename F>
             requires std::is_invocable_v<F>
         explicit RFF2Renderer(vkh::Engine &engine, vkh::WindowContext &wc, Settings &settings,
-                             ZoomAnimationInfo &zoomAnimationInfo, F &&renderFunc) :
+                             std::mutex &locationMutex, ZoomAnimationInfo &zoomAnimationInfo, F &&renderFunc) :
             RendererImGui(engine, wc, std::forward<F>(renderFunc)), settings(settings),
-            zoomAnimationInfo(zoomAnimationInfo) {
+            locationMutex(locationMutex), zoomAnimationInfo(zoomAnimationInfo) {
             RFF2Renderer::init();
         }
 
@@ -150,6 +152,20 @@ namespace merutilm::rff2 {
 
             descriptorStorage->time->setToCurrentTime(frameIndex);
             descriptorStorage->surface->set(settings.shader.surface, mouseAdditionalZoom, mouseOffset, frameIndex);
+            const auto gridExtent = RendererUtils::getInternalImageExtent(wc.getSwapchain().getSwapchainExtent(),
+                                                                          settings.render.display.clarityMultiplier);
+            {
+                const std::scoped_lock locationLock(locationMutex);
+                const double gridRenderZoom = settings.fractal.general.logZoom - zoomAnimationInfo.targetLogZoomOffsetAim;
+                const double gridVisibleZoom = gridRenderZoom + zoomAnimationInfo.targetLogZoomOffset;
+                const auto gridCenterCorrection = (glm::dvec2(zoomAnimationInfo.targetMouseZoomOffsetAim) -
+                                                    glm::dvec2(zoomAnimationInfo.targetMouseZoomOffset)) *
+                                                   std::pow(10.0, zoomAnimationInfo.targetLogZoomOffset);
+                descriptorStorage->grid->set(settings.shader.grid, settings.fractal.reference.center,
+                        gridVisibleZoom, gridVisibleZoom,
+                        settings.render.display.clarityMultiplier, {gridExtent.width, gridExtent.height}, frameIndex,
+                        {gridCenterCorrection.x * gridExtent.width, -gridCenterCorrection.y * gridExtent.height}, true);
+            }
 
             computeBoxBlur->setBlurInfo(CPCBoxBlur::DESC_INDEX_BLUR_TARGET_FOG,
                                         std::min(1.0f, settings.shader.fog.radius * mouseAdditionalZoom), frameIndex);

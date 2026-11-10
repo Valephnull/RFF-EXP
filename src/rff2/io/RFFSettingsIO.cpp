@@ -202,6 +202,13 @@ namespace merutilm::rff2 {
             writer.value(fractal3D.distance);
             writer.value(fractal3D.baseIteration);
             writer.value(fractal3D.depthDivisor);
+            const auto &grid = shader.grid;
+            writer.boolean(grid.use);
+            writer.value(grid.subdivision);
+            writer.value(grid.spacing);
+            writer.value(grid.lineWidth);
+            writer.value(grid.opacity);
+            writeVec4(writer, grid.color);
         }
 
         bool readShader(Reader &reader, ShaderSettings &shader, const uint32_t version) {
@@ -253,6 +260,13 @@ namespace merutilm::rff2 {
                 !reader.value(shader.fractal3D.altitude) || !reader.value(shader.fractal3D.rotation) ||
                 !reader.value(shader.fractal3D.distance) || !reader.value(shader.fractal3D.baseIteration) ||
                 !reader.value(shader.fractal3D.depthDivisor))
+                return false;
+
+            shader.grid = {};
+            if (version >= 5 &&
+                (!reader.boolean(shader.grid.use) || !reader.value(shader.grid.subdivision) ||
+                 !reader.value(shader.grid.spacing) || !reader.value(shader.grid.lineWidth) ||
+                 !reader.value(shader.grid.opacity) || !readVec4(reader, shader.grid.color) || !shader.grid.valid()))
                 return false;
 
             const auto allFinite = [](const std::initializer_list<float> values) {

@@ -1,6 +1,7 @@
 #include "GPCImageCopy.hpp"
 
 #include "SharedImageContextIndices.hpp"
+#include "desc/SharedDescriptorTemplate.hpp"
 #include "vulkan_helper/engine/repo/GlobalSamplerRepo.hpp"
 
 namespace merutilm::rff2 {
@@ -32,5 +33,6 @@ namespace merutilm::rff2 {
                 BINDING_SOURCE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT,
                 std::make_unique<vkh::CombinedImageSampler>(wc.core, sampler, true));
         appendUniqueDescriptor(SET_SOURCE, descriptors, std::move(manager));
+        appendDescriptor<SharedDescriptorTemplate::DescGrid>(1, descriptors);
     }
 } // namespace merutilm::rff2

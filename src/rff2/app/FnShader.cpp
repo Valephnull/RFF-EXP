@@ -494,6 +494,23 @@ namespace merutilm::rff2 {
         ImGuiUtils::HelpMarker("Sets the intensity of the bloom.");
         ImGuiUtils::EndSettings();
     }
+    void FnShader::grid(RFF2 &app) {
+        ImGuiUtils::BeginSettings("Grid");
+        auto &grid = app.getSettings().shader.grid;
+        ImGui::Checkbox("Enabled", &grid.use);
+        if (grid.use) {
+            int subdivision = static_cast<int>(grid.subdivision);
+            if (ImGui::InputInt("Subdivision", &subdivision))
+                grid.subdivision = static_cast<uint32_t>(std::clamp(subdivision, 2, 64));
+            ImGuiUtils::HelpMarker("Divisions per cell at each level, for example 2, 4, or 10.");
+            ImGui::SliderFloat("Cell Spacing", &grid.spacing, 16, 512, "%.0f px");
+            ImGui::SliderFloat("Line Width", &grid.lineWidth, 0.5f, 8, "%.1f px");
+            ImGui::SliderFloat("Opacity", &grid.opacity, 0, 1);
+            ImGui::ColorEdit3("Line Color", &grid.color.x, ImGuiColorEditFlags_NoInputs);
+        }
+        ImGuiUtils::EndSettings();
+    }
+
     void FnShader::sampling(RFF2 &app) {
         ImGuiUtils::BeginSettings("Sampling");
         auto &[bilinear, sampleCount] = app.getSettings().shader.sampling;

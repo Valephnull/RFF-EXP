@@ -14,6 +14,7 @@ namespace merutilm::rff2 {
         static void fog(RFF2 &app);
         static void bloom(RFF2 &app);
         static void sampling(RFF2 &app);
+        static void grid(RFF2 &app);
 #ifdef USE_EXPERIMENTAL_3D
         static void fractal3D(RFF2 &app);
 #endif

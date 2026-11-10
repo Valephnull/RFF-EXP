@@ -266,6 +266,19 @@ namespace merutilm::rff2::SharedDescriptorManager {
             samplingUBO.update();
         }
     };
+    struct DescManagerGrid : vkh::DescriptorTemplateManager {
+        using DescriptorTemplateManager::DescriptorTemplateManager;
+        GridCalculator calculator;
+        void set(const ShdGridSettings &settings, const fixed_point_complex &center, double renderLogZoom,
+                 double visibleLogZoom, float clarity, glm::uvec2 extent, uint32_t frameIndex,
+                 glm::dvec2 centerOffsetPixels = {}, bool afterZoom = false) {
+            auto &uniform = desc.get<vkh::Uniform>(0, 0);
+            auto data = calculator.calculate(settings, center, renderLogZoom, visibleLogZoom, clarity, extent, centerOffsetPixels);
+            data.stage.x = afterZoom ? 1.0f : 0.0f;
+            uniform.getHostObject().set<GridUniform>(0, data);
+            uniform.updateMF(frameIndex);
+        }
+    };
     struct DescManagerVideo : vkh::DescriptorTemplateManager {
         using DescriptorTemplateManager::DescriptorTemplateManager;
 

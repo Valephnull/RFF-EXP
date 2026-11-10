@@ -68,5 +68,6 @@ namespace merutilm::rff2 {
         appendDescriptor<DescSmoothZoom>(SET_SMOOTH_ZOOM, descriptors);
         appendDescriptor<DescIteration>(SET_ITERATION, descriptors);
         appendDescriptor<DescIterationSnapshotVariant>(SET_ITERATION_SNAPSHOT, descriptors);
+        appendDescriptor<DescGrid>(4, descriptors);
     }
 } // namespace merutilm::rff2

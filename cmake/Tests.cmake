@@ -58,6 +58,16 @@ if (RFF_BUILD_TESTS)
     target_compile_options(RFFVideoExportValidationTest PRIVATE -O3 -ffast-math)
     add_test(NAME video_export_validation COMMAND RFFVideoExportValidationTest)
 
+    add_executable(RFFGridCalculatorTest tests/GridCalculatorTest.cpp)
+    target_include_directories(RFFGridCalculatorTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_compile_options(RFFGridCalculatorTest PRIVATE -UNDEBUG)
+    if (WIN32)
+        target_link_libraries(RFFGridCalculatorTest PRIVATE ${CLANG64_LIBS}/libgmp.a)
+    else ()
+        target_link_libraries(RFFGridCalculatorTest PRIVATE ${GMP_STATIC})
+    endif ()
+    add_test(NAME grid_coordinates COMMAND RFFGridCalculatorTest)
+
     # These tests use assert; Release builds must execute those checks too.
     foreach (testTarget RFFRenderPoolNetworkTest RFFParallelRenderStatePauseTest
                         RFFDynamicMapValidationTest RFFSettingsIOTest)

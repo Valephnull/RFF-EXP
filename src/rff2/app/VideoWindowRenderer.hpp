@@ -48,6 +48,7 @@ namespace merutilm::rff2 {
         bool isStaticImages = false;
         double currentSec = 0.0f;
         double currentFrame = 0.0f;
+        double currentLogZoom = 0;
 
         explicit VideoWindowRenderer(vkh::Engine &engine, vkh::WindowContext &wc, const Settings &settings,
                                      const VkExtent2D &videoExtent) :
@@ -104,6 +105,9 @@ namespace merutilm::rff2 {
             descriptorStorage->time->setTimeManually(currentSec, frameIndex);
             descriptorStorage->surface->set(settings.shader.surface, 1, {}, frameIndex);
             descriptorStorage->video->setCurrentFrame(currentFrame, frameIndex);
+            descriptorStorage->grid->set(settings.shader.grid, settings.fractal.reference.center,
+                    currentLogZoom, currentLogZoom, settings.render.display.clarityMultiplier,
+                    {videoExtent.width, videoExtent.height}, frameIndex);
             computeBoxBlur->setBlurInfo(CPCBoxBlur::DESC_INDEX_BLUR_TARGET_FOG, settings.shader.fog.radius,
                                         frameIndex);
             computeBoxBlur->setBlurInfo(CPCBoxBlur::DESC_INDEX_BLUR_TARGET_BLOOM, settings.shader.bloom.radius,

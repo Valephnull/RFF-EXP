@@ -142,7 +142,10 @@ namespace merutilm::rff2 {
     }
 
 
-    void VideoWindowRenderManager::renderOnce() const { renderer->render(); }
+    void VideoWindowRenderManager::renderOnce() const {
+        renderer->currentLogZoom = calculateLogZoom(targetSettings.video.data.defaultZoomIncrement, renderer->currentFrame);
+        renderer->render();
+    }
 
     double VideoWindowRenderManager::calculateLogZoom(const double defaultZoomIncrement, const double currentFrame) const {
         if (currentFrame < 1) {

@@ -64,6 +64,22 @@ namespace merutilm::rff2 {
         readSamplingSettings(in, shaderSettings.sampling, version, legacyRffExpV2);
         readFractal3DSettings(in, shaderSettings.fractal3D);
 
+        // Optional, tagged extension: old .rfs files keep the grid disabled;
+        // readers predating the grid can still read the original v6 payload.
+        if (version >= 6 && in.peek() != std::char_traits<char>::eof()) {
+            uint32_t tag = 0;
+            IOUtilities::readAndDecode(in, &tag);
+            if (tag != 0x31445247u) return DEFAULT; // GRD1
+            auto &grid = shaderSettings.grid;
+            IOUtilities::readAndDecode(in, &grid.use);
+            IOUtilities::readAndDecode(in, &grid.subdivision);
+            IOUtilities::readAndDecode(in, &grid.spacing);
+            IOUtilities::readAndDecode(in, &grid.lineWidth);
+            IOUtilities::readAndDecode(in, &grid.opacity);
+            IOUtilities::readAndDecode(in, &grid.color);
+            if (!in || !grid.valid()) return DEFAULT;
+        }
+
         return RFFShaderBinary(std::move(shaderSettings));
     }
 
@@ -255,6 +271,14 @@ namespace merutilm::rff2 {
         IOUtilities::encodeAndWrite(out, fractal3d.distance);
         IOUtilities::encodeAndWrite(out, fractal3d.baseIteration);
         IOUtilities::encodeAndWrite(out, fractal3d.depthDivisor);
+        IOUtilities::encodeAndWrite(out, uint32_t{0x31445247u});
+        const auto &grid = shaderSettings.grid;
+        IOUtilities::encodeAndWrite(out, grid.use);
+        IOUtilities::encodeAndWrite(out, grid.subdivision);
+        IOUtilities::encodeAndWrite(out, grid.spacing);
+        IOUtilities::encodeAndWrite(out, grid.lineWidth);
+        IOUtilities::encodeAndWrite(out, grid.opacity);
+        IOUtilities::encodeAndWrite(out, grid.color);
     }
 
 } // namespace merutilm::rff2

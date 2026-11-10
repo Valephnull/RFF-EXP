@@ -34,6 +34,7 @@ namespace merutilm::rff2 {
         std::unique_ptr<SharedDescriptorManager::DescManagerFog> fog;
         std::unique_ptr<SharedDescriptorManager::DescManagerBloom> bloom;
         std::unique_ptr<SharedDescriptorManager::DescManagerSampling> sampling;
+        std::unique_ptr<SharedDescriptorManager::DescManagerGrid> grid;
         std::unique_ptr<SharedDescriptorManager::DescManagerVideo> video;
         std::unique_ptr<SharedDescriptorManager::DescManagerBatchResult> batchResult;
         std::unique_ptr<SharedDescriptorManager::DescManagerSmoothZoom> smoothZoom;
@@ -73,6 +74,7 @@ namespace merutilm::rff2 {
             fog = pickAndQueue<DescFog, DescManagerFog>(queue);
             bloom = pickAndQueue<DescBloom, DescManagerBloom>(queue);
             sampling = pickAndQueue<DescSampling, DescManagerSampling>(queue);
+            grid = pickAndQueue<DescGrid, DescManagerGrid>(queue);
             video = pickAndQueue<DescVideo, DescManagerVideo>(queue);
             batchResult = pickAndQueue<DescBatchResult, DescManagerBatchResult>(queue);
             smoothZoom = pickAndQueue<DescSmoothZoom, DescManagerSmoothZoom>(queue);

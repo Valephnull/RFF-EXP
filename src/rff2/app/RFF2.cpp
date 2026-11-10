@@ -779,7 +779,8 @@ namespace merutilm::rff2 {
             requests.createImageRequestedFilename = path->string();
         }
         const auto &imgCtx = rootWindowContext->getSharedImageContext().getImageContextMF(
-                SharedImageContextIndices::MF_MAIN_RENDER_IMAGE_SECONDARY)[frameIndex];
+                settings.shader.grid.use ? SharedImageContextIndices::MF_MAIN_RENDER_IMAGE_PRIMARY :
+                                           SharedImageContextIndices::MF_MAIN_RENDER_IMAGE_SECONDARY)[frameIndex];
 
         vkh::BufferContext bufCtx = vkh::BufferContext::createContext(
                 rootWindowContext->core,
@@ -896,7 +897,7 @@ namespace merutilm::rff2 {
     }
 
     void RFF2::registerRenderers() {
-        renderer = registerRenderer<RFF2Renderer>(*engine, *rootWindowContext, settings, zoomAnimationInfo,
+        renderer = registerRenderer<RFF2Renderer>(*engine, *rootWindowContext, settings, locationMutex, zoomAnimationInfo,
                                                   [this] { renderImGui(); });
         createImGuiContext(renderer->imguiRenderContext);
     }
@@ -1017,6 +1018,7 @@ namespace merutilm::rff2 {
                 FnShader::fog(*this);
                 FnShader::bloom(*this);
                 FnShader::sampling(*this);
+                FnShader::grid(*this);
 #ifdef USE_EXPERIMENTAL_3D
                 FnShader::fractal3D(*this);
 #endif
@@ -1116,6 +1118,7 @@ namespace merutilm::rff2 {
         sharedImg.appendMultiframeImageContext(MF_MAIN_RENDER_IMAGE_PRIMARY,
                                                iiiGetter(internalImageExtent, VK_FORMAT_R16G16B16A16_UNORM,
                                                          VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                                                                 VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
                                                                  VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT |
                                                                  VK_IMAGE_USAGE_SAMPLED_BIT));
         sharedImg.appendMultiframeImageContext(
