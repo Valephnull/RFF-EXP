@@ -39,6 +39,8 @@ namespace merutilm::rff2 {
 
         void cleanup() override {
             core.getLogicalDevice().waitDeviceIdle();
+            image.release();
+            vkh::BufferContext::unmapMemory(core, bufferContext);
             vkh::BufferContext::destroyContext(core, bufferContext);
         }
     };

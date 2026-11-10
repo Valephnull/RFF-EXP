@@ -2,6 +2,7 @@
 // Created by Merutilm on 2025-09-06.
 //
 #include "VideoWindow.hpp"
+#include "VideoExportValidation.hpp"
 
 #include <charconv>
 #include <format>
@@ -18,7 +19,7 @@ namespace merutilm::rff2 {
     namespace {
         void reportVideoError(RFF2 &app, const std::string &message) {
             vkh::logger::log_err("{}", message);
-            auto &[mutex, ratio, progressText] = app.getVideoProgressInfo();
+            auto &[mutex, ratio, progressText, active] = app.getVideoProgressInfo();
             std::scoped_lock lock(mutex);
             ratio = 0;
             progressText = message;
@@ -81,7 +82,7 @@ namespace merutilm::rff2 {
     VideoWindow::~VideoWindow() { VideoWindow::cleanup(); }
 
     void VideoWindow::createVideo(RFF2 &app, const std::filesystem::path &open,
-                                  const std::filesystem::path &save, const Settings &settingsClone) {
+                                  const std::filesystem::path &save, const Settings &settingsClone) try {
         uint32_t imgWidth = 0;
         uint32_t imgHeight = 0;
         uint32_t dynamicFrameCount = 0;
@@ -90,12 +91,12 @@ namespace merutilm::rff2 {
 
 
         if (!isWindow) {
-            vkh::logger::log_err("Main window doesn't exist");
+            reportVideoError(app, "The main window no longer exists.");
             return;
         }
 
         if (app.engine->isValidWindowContext(Constants::VulkanWindow::VIDEO_WINDOW_ATTACHMENT_INDEX)) {
-            vkh::logger::log_err("Video processor already using");
+            reportVideoError(app, "A video export is already running.");
             return;
         }
 
@@ -103,7 +104,7 @@ namespace merutilm::rff2 {
         if (settingsClone.video.data.isStatic) {
             const RFFStaticMapBinary targetMap = RFFStaticMapBinary::readByID(open, 1);
             if (!targetMap.hasData()) {
-                vkh::logger::log_err("Cannot create video. There is no samples in the directory");
+                reportVideoError(app, "The selected folder does not contain keyframe 0001.rfsm. Check Static data.");
                 return;
             }
 
@@ -112,7 +113,7 @@ namespace merutilm::rff2 {
         } else {
             const RFFDynamicMapBinary targetMap = RFFDynamicMapBinary::readByID(open, 1);
             if (!targetMap.hasData()) {
-                vkh::logger::log_err("Cannot create video. There is no samples in the directory");
+                reportVideoError(app, "The selected folder does not contain a readable keyframe 0001.rfm. Check Static data.");
                 return;
             }
 
@@ -126,6 +127,23 @@ namespace merutilm::rff2 {
             }
         }
 
+        const auto &[defaultZoomIncrement, isStatic] = settingsClone.video.data;
+        const auto &[overZoom, showText, mps] = settingsClone.video.animation;
+        const auto &[fps, bitrate] = settingsClone.video.exportation;
+        if (const auto error = validateVideoExport(fps, mps, overZoom, defaultZoomIncrement, imgWidth, imgHeight);
+            !error.empty()) {
+            reportVideoError(app, error);
+            return;
+        }
+
+        // Check the encoder before creating any additional Vulkan/window resources.
+        cv::VideoWriter writer;
+        writer.open(save.string(), cv::CAP_FFMPEG, cv::VideoWriter::fourcc('a', 'v', 'c', '1'), fps,
+                    cv::Size(static_cast<int>(imgWidth), static_cast<int>(imgHeight)));
+        if (!writer.isOpened()) {
+            reportVideoError(app, "Could not open the H.264 video encoder/output file. Check the output path and FFmpeg installation.");
+            return;
+        }
 
         const auto cw = static_cast<uint32_t>(std::min(imgWidth, 1280u));
         const auto ch = cw * imgHeight / imgWidth;
@@ -134,22 +152,8 @@ namespace merutilm::rff2 {
         auto &manager = *window.scene;
         GLFWwindow *handle = manager.getWindowContext().getWindow()->getWindow();
 
-        const auto &[defaultZoomIncrement, isStatic] = settingsClone.video.data;
-        const auto &[overZoom, showText, mps] = settingsClone.video.animation;
-        const auto &[fps, bitrate] = settingsClone.video.exportation;
-
-
-        cv::VideoWriter writer;
-        writer.open(save.string(), cv::CAP_FFMPEG, cv::VideoWriter::fourcc('a', 'v', 'c', '1'), fps,
-                    cv::Size(static_cast<int>(imgWidth), static_cast<int>(imgHeight)));
-
-        if (!writer.isOpened()) {
-            vkh::logger::log_err("Cannot open file!!");
-            return;
-        }
-
-        auto &[mutex, ratio, remainedTimeStr] = app.getVideoProgressInfo();
-        const auto frameInterval = mps / fps;
+        auto &[mutex, ratio, remainedTimeStr, active] = app.getVideoProgressInfo();
+        const double frameInterval = static_cast<double>(mps) / fps;
         uint32_t maxNumber;
         if (isStatic) {
             IOUtilities::generateFilename(open, Constants::File::EXT_STATIC_MAP, &maxNumber);
@@ -177,7 +181,7 @@ namespace merutilm::rff2 {
 
         while (currentFrame > minNumber && !glfwWindowShouldClose(handle)) {
 
-            currentFrame -= frameInterval;
+            currentFrame = std::max(minNumber, currentFrame - frameInterval);
             currentSec += 1.0f / fps;
             bool requiredRefresh = false;
 
@@ -225,11 +229,13 @@ namespace merutilm::rff2 {
                 }
             }
 
-            std::condition_variable cv;
             while (!manager.getWindowContext().getWindow()->canRenderNow()) {
-                // noop, TODO - busy waiting anti pattern, use wait and notify via conditional variable
-                _mm_pause();
+                if (glfwWindowShouldClose(handle) || glfwWindowShouldClose(app.rootWindowContext->getWindow()->getWindow()))
+                    break;
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
             }
+            if (glfwWindowShouldClose(handle) || glfwWindowShouldClose(app.rootWindowContext->getWindow()->getWindow()))
+                break;
             manager.setTime(currentSec);
             manager.renderOnce();
             VideoBufferCache buffer = manager.createImage();
@@ -256,6 +262,11 @@ namespace merutilm::rff2 {
 
         std::scoped_lock lock(mutex);
         ratio = 0;
+        remainedTimeStr = currentFrame <= minNumber ? "Video export finished." : "Video export stopped.";
+    } catch (const std::exception &error) {
+        reportVideoError(app, std::string("Video export failed: ") + error.what());
+    } catch (...) {
+        reportVideoError(app, "Video export failed with an unknown error.");
     }
 
 
@@ -295,6 +306,7 @@ namespace merutilm::rff2 {
 
         auto &videoWc =
                 app.engine->attachWindowContext(std::move(wic), Constants::VulkanWindow::VIDEO_WINDOW_ATTACHMENT_INDEX);
+        ownsWindowContext = true;
 
         scene = std::make_unique<VideoWindowRenderManager>(*app.engine, videoWc, videoExtent, targetSettings);
     }
@@ -303,6 +315,8 @@ namespace merutilm::rff2 {
 
 
     void VideoWindow::cleanup() {
+        if (!ownsWindowContext)
+            return;
         app.engine->getCore().getLogicalDevice().waitDeviceIdle();
         scene = nullptr;
         app.engine->detachWindowContext(Constants::VulkanWindow::VIDEO_WINDOW_ATTACHMENT_INDEX);

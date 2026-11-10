@@ -794,19 +794,28 @@ namespace merutilm::rff2 {
             const auto executor =
                     vkh::ScopedNewCommandBufferExecutor(rootWindowContext->core, rootWindowContext->getCommandPool());
             vkh::BarrierUtils::cmdImageMemoryBarrier(
-                    executor.getCommandBuffer().getCommandBufferHandle(), imgCtx.image, VK_ACCESS_SHADER_WRITE_BIT,
+                    executor.getCommandBuffer().getCommandBufferHandle(), imgCtx.image, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
                     VK_ACCESS_TRANSFER_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0, 1, VK_IMAGE_ASPECT_COLOR_BIT,
-                    VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+                    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1,
+                    VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
             vkh::BufferImageContextUtils::cmdCopyImageToBuffer(executor.getCommandBuffer(), imgCtx, bufCtx);
+            vkh::BarrierUtils::cmdBufferMemoryBarrier(
+                    executor.getCommandBuffer().getCommandBufferHandle(), VK_ACCESS_TRANSFER_WRITE_BIT,
+                    VK_ACCESS_HOST_READ_BIT, bufCtx.buffer, 0, bufCtx.bufferSize,
+                    VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT);
+            vkh::BarrierUtils::cmdImageMemoryBarrier(
+                    executor.getCommandBuffer().getCommandBufferHandle(), imgCtx.image, VK_ACCESS_TRANSFER_READ_BIT,
+                    VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1,
+                    VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
         }
-        vkh::BufferContext::unmapMemory(rootWindowContext->core, bufCtx);
 
         auto img = cv::Mat(static_cast<int>(imgCtx.extent.height), static_cast<int>(imgCtx.extent.width), CV_16UC4,
-                           bufCtx.mappedMemory);
+                           bufCtx.mappedMemory).clone();
+        vkh::BufferContext::unmapMemory(rootWindowContext->core, bufCtx);
+        vkh::BufferContext::destroyContext(rootWindowContext->core, bufCtx);
         cv::cvtColor(img, img, cv::COLOR_RGBA2BGRA);
         cv::imwrite(requests.createImageRequestedFilename, img);
-        vkh::BufferContext::destroyContext(rootWindowContext->core, bufCtx);
     }
 
     void RFF2::invokeUpdaters() {

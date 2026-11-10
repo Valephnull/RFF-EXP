@@ -19,6 +19,7 @@ namespace merutilm::rff2 {
         std::unique_ptr<VideoWindowRenderManager> scene = nullptr;
         const int width;
         const int height;
+        bool ownsWindowContext = false;
 
 
     public:

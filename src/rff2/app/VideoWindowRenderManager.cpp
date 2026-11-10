@@ -187,12 +187,21 @@ namespace merutilm::rff2 {
             vkh::ScopedCommandBufferExecutor executor(wc, wc.getCommandBufferGroup().getCommandBuffer(frameIndex),
                                                       wc.getSyncObject().getFence(frameIndex), VK_NULL_HANDLE,
                                                       VK_NULL_HANDLE);
+            const auto commandBuffer = wc.getCommandBufferGroup().getCommandBuffer(frameIndex).getCommandBufferHandle();
+            vkh::BarrierUtils::cmdBufferMemoryBarrier(
+                    commandBuffer, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+                    srcBuffer.buffer, 0, srcBuffer.bufferSize,
+                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
             vkh::BufferImageContextUtils::cmdCopyBuffer(wc.getCommandBufferGroup().getCommandBuffer(frameIndex),
                                                         srcBuffer, dstBuffer);
+            vkh::BarrierUtils::cmdBufferMemoryBarrier(
+                    commandBuffer, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_HOST_READ_BIT,
+                    dstBuffer.buffer, 0, dstBuffer.bufferSize,
+                    VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT);
         }
         wc.getSyncObject().getFence(frameIndex).wait();
 
-        vkh::BufferContext::unmapMemory(wc.core, dstBuffer);
+        // VideoBufferCache owns the mapping: the encoder still needs these pixels.
         return VideoBufferCache(
                 wc.core, std::move(dstBuffer), static_cast<int>(videoExtent.width),
                 static_cast<int>(videoExtent.height),

@@ -120,9 +120,9 @@ namespace merutilm::rff2 {
                 vkh::RenderPassFullscreenRecorder::cmdFullscreenInternalRenderPass(wc, *rcStatic2, frameIndex);
 
                 vkh::BarrierUtils::cmdImageMemoryBarrier(
-                        cbh, mfg(SharedImageContextIndices::MF_MAIN_RENDER_IMAGE_SECONDARY), VK_ACCESS_SHADER_WRITE_BIT,
+                        cbh, mfg(SharedImageContextIndices::MF_MAIN_RENDER_IMAGE_SECONDARY), VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
                         VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0,
-                        1, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+                        1, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
             } else {
                 vkh::BarrierUtils::cmdImageMemoryBarrier(
                         cbh, mfg(SharedImageContextIndices::MF_MAIN_RENDER_IMAGE_PRIMARY), 0, VK_ACCESS_SHADER_READ_BIT,
@@ -261,6 +261,12 @@ namespace merutilm::rff2 {
 
             // [BARRIER] SECONDARY
 
+            vkh::BarrierUtils::cmdImageMemoryBarrier(
+                    cbh, mfg(SharedImageContextIndices::MF_MAIN_RENDER_IMAGE_SECONDARY),
+                    VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
             computeImageRGBA2BGR->cmdRender(cbh, frameIndex, {});
 
             vkh::RenderPassFullscreenRecorder::cmdFullscreenForSwapchainRenderPass(wc, *rcPresent, frameIndex,

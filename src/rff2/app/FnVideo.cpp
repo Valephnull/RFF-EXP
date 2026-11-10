@@ -206,33 +206,51 @@ namespace merutilm::rff2 {
         }
     }
     void FnVideo::exportZoomingVideo(RFF2 &app) {
+        auto &progress = app.getVideoProgressInfo();
+        bool exporting;
+        {
+            std::scoped_lock lock(progress.mutex);
+            exporting = progress.active;
+        }
+        ImGui::BeginDisabled(exporting);
         if (ImGui::Button("Export Zooming Video", ImVec2(-FLT_MIN, 0))) {
             auto openPtr = IOUtilities::ioDirectoryDialog();
 
             if (openPtr == nullptr) {
+                ImGui::EndDisabled();
                 return;
             }
             auto savePtr = IOUtilities::ioFileDialog(Constants::File::DESC_VIDEO, IOUtilities::SAVE_FILE,
                                                      Constants::File::EXT_VIDEO);
             if (savePtr == nullptr) {
+                ImGui::EndDisabled();
                 return;
             }
 
+            {
+                std::scoped_lock lock(progress.mutex);
+                progress.active = true;
+                progress.ratio = 0;
+                progress.remainedTimeStr = "Preparing video...";
+            }
             app.getBackgroundThreads().createThread([&app, settingsClone = app.getSettings(),
                                                      openPtr = std::move(openPtr),
                                                      savePtr = std::move(savePtr)](const BackgroundThread &) {
                 const auto &open = *openPtr;
                 const auto &save = *savePtr;
                 VideoWindow::createVideo(app, open, save, settingsClone);
+                auto &progress = app.getVideoProgressInfo();
+                std::scoped_lock lock(progress.mutex);
+                progress.active = false;
             });
         }
+        ImGui::EndDisabled();
 
-        auto &[mutex, ratio, remainedTimeStr] = app.getVideoProgressInfo();
-        if (ratio > 0) {
-            std::scoped_lock lock(mutex);
-            ImGui::ProgressBar(static_cast<float>(ratio));
-            ImGui::Text("%s", remainedTimeStr.data());
-        }
+        std::scoped_lock lock(progress.mutex);
+        if (progress.active)
+            ImGui::ProgressBar(static_cast<float>(progress.ratio));
+        if (!progress.remainedTimeStr.empty())
+            ImGui::TextWrapped("%s", progress.remainedTimeStr.c_str());
     }
 
 } // namespace merutilm::rff2
