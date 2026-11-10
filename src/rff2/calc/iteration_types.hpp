@@ -5,6 +5,7 @@
 #pragma once
 #include <cassert>
 #include <cstdint>
+#include <cstdlib>
 #include <string>
 #include <gmp.h>
 #include <array>
@@ -32,7 +33,7 @@ namespace merutilm::rff2::itt {
         mpz_clear(z);
         assert(len >= 0);
         std::string result = str;
-        free(str);
+        std::free(str);
         return result;
     }
 
