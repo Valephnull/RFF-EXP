@@ -43,6 +43,7 @@ add_executable(
         ${CMAKE_SOURCE_DIR}/src/rff2/io/RFFStaticMapBinary.cpp
         ${CMAKE_SOURCE_DIR}/src/rff2/io/RFFLocationBinary.cpp
         ${CMAKE_SOURCE_DIR}/src/rff2/io/KFRColorLoader.cpp
+        ${CMAKE_SOURCE_DIR}/src/rff2/io/GradientLoader.cpp
         ${CMAKE_SOURCE_DIR}/extern/stb_image.c
         ${CMAKE_SOURCE_DIR}/src/rff2/vulkan/GPCIterationPalette.cpp
         ${CMAKE_SOURCE_DIR}/src/rff2/app/RFF2.cpp

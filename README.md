@@ -12,7 +12,7 @@ Currently, I have added:
 * Auto Exploration menu - basically Fractal eXtreme's menu but better, and with more features
 * Autosave - If a crash happens, you can get back to that location next time you launch RFF-EXP
 * Render Pool - Render RFF keyframe sequences on multiple computers
-* Settings files (`.rfc`) and shader/color presets (`.rfsp`), from RFF_Super
+* File support: settings (`.rfc`), shader/color presets (`.rfsp`), Kalles Fraktaler palettes (`.kfr`), and gradient packs (`.gradient`)
 
 ## Installation
 

@@ -49,6 +49,10 @@ if (RFF_BUILD_TESTS)
     endif()
     add_test(NAME settings_io_round_trip COMMAND RFFSettingsIOTest)
 
+    add_executable(RFFGradientLoaderTest tests/GradientLoaderTest.cpp src/rff2/io/GradientLoader.cpp)
+    target_include_directories(RFFGradientLoaderTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME gradient_import COMMAND RFFGradientLoaderTest)
+
     add_executable(RFFVideoExportValidationTest tests/VideoExportValidationTest.cpp)
     target_include_directories(RFFVideoExportValidationTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
     target_compile_options(RFFVideoExportValidationTest PRIVATE -O3 -ffast-math)

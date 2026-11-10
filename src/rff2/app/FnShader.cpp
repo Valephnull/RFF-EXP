@@ -8,6 +8,7 @@
 #include "imgui.h"
 
 #include "../io/KFRColorLoader.hpp"
+#include "../io/GradientLoader.hpp"
 
 namespace merutilm::rff2 {
 
@@ -187,6 +188,97 @@ namespace merutilm::rff2 {
                 app.getSettings().shader.palette.colors = loaded;
                 app.getRequests().requestShader();
             }
+        }
+
+        static std::vector<ImportedGradient> importedGradients;
+        static int selectedGradient = 0;
+        static ImGuiTextFilter gradientFilter;
+        static std::string gradientError;
+        const auto applyGradient = [&](const ImportedGradient &gradient) {
+            colors = gradient.colors;
+            selected = selectRequest = -1;
+            page = 0;
+            app.getRequests().requestShader();
+        };
+        if (ImGui::Button("Load Gradient", ImVec2(-FLT_MIN, 0))) {
+            gradientError.clear();
+            const auto path = IOUtilities::ioFileDialog(Constants::File::DESC_GRADIENT, IOUtilities::OPEN_FILE,
+                                                       Constants::File::EXT_GRADIENT);
+            if (path) {
+                importedGradients = GradientLoader::load(*path, gradientError);
+                selectedGradient = 0;
+                gradientFilter.Clear();
+                if (importedGradients.size() == 1) {
+                    applyGradient(importedGradients.front());
+                    importedGradients.clear();
+                } else if (!importedGradients.empty()) {
+                    ImGui::OpenPopup("Import Gradient");
+                }
+            }
+        }
+        if (!gradientError.empty())
+            ImGui::TextWrapped("%s", gradientError.c_str());
+
+        const ImVec2 available = ImGui::GetMainViewport()->WorkSize;
+        const ImVec2 maximum(available.x * 0.95f, available.y * 0.95f);
+        ImGui::SetNextWindowSize(ImVec2(std::min(560.0f, maximum.x), std::min(420.0f, maximum.y)),
+                                 ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSizeConstraints(
+                ImVec2(std::min(360.0f, maximum.x), std::min(300.0f, maximum.y)), maximum);
+        if (ImGui::BeginPopupModal("Import Gradient", nullptr, ImGuiWindowFlags_NoScrollbar)) {
+            gradientFilter.Draw("Filter", -1);
+            const float footerHeight = ImGui::GetTextLineHeightWithSpacing() + 28.0f +
+                                       ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y * 2;
+            const float listHeight = std::max(ImGui::GetFrameHeight(), ImGui::GetContentRegionAvail().y - footerHeight);
+            if (ImGui::BeginChild("Gradient list", ImVec2(0, listHeight), ImGuiChildFlags_Borders)) {
+                ImGuiListClipper clipper;
+                std::vector<int> visible;
+                visible.reserve(importedGradients.size());
+                for (int i = 0; i < static_cast<int>(importedGradients.size()); ++i) {
+                    if (gradientFilter.PassFilter(importedGradients[i].name.c_str())) visible.push_back(i);
+                }
+                clipper.Begin(static_cast<int>(visible.size()));
+                while (clipper.Step()) {
+                    for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
+                        const int i = visible[row];
+                        ImGui::PushID(i);
+                        if (ImGui::Selectable(importedGradients[i].name.c_str(), selectedGradient == i))
+                            selectedGradient = i;
+                        ImGui::PopID();
+                    }
+                }
+            }
+            ImGui::EndChild();
+            if (!importedGradients.empty()) {
+                const auto &gradient = importedGradients[selectedGradient];
+                ImGui::TextUnformatted(gradient.name.c_str());
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("%s", gradient.name.c_str());
+                const ImVec2 origin = ImGui::GetCursorScreenPos();
+                const float width = ImGui::GetContentRegionAvail().x;
+                for (size_t i = 0; i < gradient.colors.size(); ++i) {
+                    const auto &left = gradient.colors[i];
+                    const auto &right = gradient.colors[(i + 1) % gradient.colors.size()];
+                    const ImU32 c0 = ImGui::ColorConvertFloat4ToU32(ImVec4(left.r, left.g, left.b, 1));
+                    const ImU32 c1 = ImGui::ColorConvertFloat4ToU32(ImVec4(right.r, right.g, right.b, 1));
+                    ImGui::GetWindowDrawList()->AddRectFilledMultiColor(
+                            ImVec2(origin.x + width * static_cast<float>(i) / gradient.colors.size(), origin.y),
+                            ImVec2(origin.x + width * static_cast<float>(i + 1) / gradient.colors.size(), origin.y + 28),
+                            c0, c1, c1, c0);
+                }
+                ImGui::Dummy(ImVec2(width, 28));
+                if (ImGui::Button("Import", ImVec2(120, 0))) {
+                    applyGradient(gradient);
+                    importedGradients.clear();
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::SameLine();
+            }
+            if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+                importedGradients.clear();
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
         }
 
 

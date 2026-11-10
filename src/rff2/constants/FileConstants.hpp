@@ -14,6 +14,7 @@ namespace merutilm::rff2::Constants::File {
     constexpr auto EXT_KFR = "kfr";
     constexpr auto EXT_CONFIG = "rfc";
     constexpr auto EXT_SHADER_PRESET = "rfsp";
+    constexpr auto EXT_GRADIENT = "gradient";
     constexpr auto DESC_DYNAMIC_MAP = "RFF dynamic map binary";
     constexpr auto DESC_SHADER = "RFF shader";
     constexpr auto DESC_STATIC_MAP = "RFF static map binary";
@@ -23,5 +24,6 @@ namespace merutilm::rff2::Constants::File {
     constexpr auto DESC_KFR = "Kalle's Fraktaler file";
     constexpr auto DESC_CONFIG = "RFF-EXP settings binary";
     constexpr auto DESC_SHADER_PRESET = "RFF-EXP shader preset binary";
+    constexpr auto DESC_GRADIENT = "Gradient pack";
     constexpr auto BACKUP_FILE_NAME = "backup";
 }
