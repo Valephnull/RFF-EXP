@@ -6,6 +6,7 @@
 *.lo
 *.o
 *.obj
+RULES.md
 
 /.idea
 /cmake-build-debug
@@ -14,10 +15,15 @@
 /build
 /build-*/
 
-/extern/imgui
 /CMakeFiles
 /bin
 /out
+/cmake/CMakeFiles
+/cmake/_deps
+/cmake/src
+export
+publish.sh
+/build.log
 
 # Precompiled Headers
 *.gch
@@ -26,7 +32,7 @@
 # Compiled Dynamic libraries
 *.so
 *.dylib
-*.dll
+
 
 # Fortran module files
 *.mod
@@ -49,3 +55,4 @@
 /update.ps1
 /update.sh
 *.zip
+/shaders/cache

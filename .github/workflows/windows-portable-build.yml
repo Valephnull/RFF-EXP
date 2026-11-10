@@ -16,6 +16,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Set up MSYS2 CLANG64
         uses: msys2/setup-msys2@v2
@@ -38,18 +40,6 @@ jobs:
             mingw-w64-clang-x86_64-glm
             mingw-w64-clang-x86_64-glfw
             mingw-w64-clang-x86_64-ntldd
-
-      - name: Get ImGui
-        shell: msys2 {0}
-        run: |
-          if [ ! -d extern/imgui ]; then
-            mkdir -p extern
-
-            git clone \
-              --depth 1 \
-              https://github.com/ocornut/imgui \
-              extern/imgui
-          fi
 
       - name: Detect MSYS2 root
         shell: msys2 {0}
@@ -93,8 +83,14 @@ jobs:
             -DCMAKE_C_COMPILER=clang \
             -DCMAKE_CXX_COMPILER=clang++ \
             -DRFF_NATIVE_OPTIMIZATIONS=OFF \
+            -DRFF_BUILD_PROFILE=Release \
+            -DCMAKE_TOOLCHAIN_FILE=cmake/windows-x86_64.cmake \
             -DVulkan_INCLUDE_DIR=/clang64/include \
             -DVulkan_LIBRARY=/clang64/lib/libvulkan-1.dll.a
+
+      - name: Compile shaders
+        shell: msys2 {0}
+        run: bash glsl-compile.sh
 
       - name: Build
         shell: msys2 {0}

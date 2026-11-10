@@ -8,7 +8,6 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
-
 #include "spin_thread.hpp"
 
 namespace merutilm::rff2 {

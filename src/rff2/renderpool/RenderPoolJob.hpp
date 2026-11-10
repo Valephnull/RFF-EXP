@@ -31,7 +31,7 @@ namespace merutilm::rff2 {
     };
 
     struct RenderPoolJobManifest {
-        static constexpr uint16_t FORMAT_VERSION = 1;
+        static constexpr uint16_t FORMAT_VERSION = 2;
 
         uint64_t id = 0;
         uint32_t windowWidth = 0;
@@ -58,7 +58,9 @@ namespace merutilm::rff2 {
         uint8_t approximationSelectionMethod = 0;
         bool compressApproximation = false;
         bool parallelizeApproximation = false;
-        uint64_t maxIteration = 0;
+        itt::ptb maxIteration = 0;
+        uint32_t referencePartitionSize = 512;
+        bool simd = false;
         uint8_t decimalizeIterationMethod = 0;
         bool autoMaxIteration = false;
         uint8_t interiorDetectRadiusPower = 0;

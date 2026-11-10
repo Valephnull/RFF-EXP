@@ -7,12 +7,15 @@
 #include <string>
 
 #include "ComputeState.hpp"
+#include "RecomputeMode.hpp"
 
 namespace merutilm::rff2 {
     struct UpdateRequests {
         std::atomic<bool> defaultSettingsRequested = false;
 
+        std::mutex recomputeMutex;
         std::atomic<ComputeState> recomputeRequestedState = ComputeState::IDLE;
+        std::atomic<RecomputeMode> recomputeMode = RecomputeMode::ALL;
 
         std::mutex resizeMutex;
         std::atomic<bool> resizeRequested = false;
@@ -39,8 +42,9 @@ namespace merutilm::rff2 {
             resizeRequestedExtent = size;
         }
 
-
-        void requestRecompute() {
+        void requestRecompute(const RecomputeMode mode = RecomputeMode::ALL) {
+            std::scoped_lock lock(recomputeMutex);
+            recomputeMode = mode;
             recomputeRequestedState = ComputeState::REQUESTED;
         }
 

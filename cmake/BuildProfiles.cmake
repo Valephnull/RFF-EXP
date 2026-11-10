@@ -1,0 +1,25 @@
+
+if (RFF_BUILD_PROFILE STREQUAL "Debug")
+    set(CMAKE_BUILD_TYPE Debug)
+    target_compile_options(RFF PRIVATE
+            -O0
+    )
+elseif (RFF_BUILD_PROFILE STREQUAL "Release")
+    set(CMAKE_BUILD_TYPE Release)
+    target_compile_options(RFF PRIVATE
+            -O3 -ffast-math -funroll-loops -march=x86-64 -mtune=generic -mllvm -inline-threshold=${RFF_INLINE_THRESHOLD}
+    )
+elseif (RFF_BUILD_PROFILE STREQUAL "Native")
+    set(CMAKE_BUILD_TYPE Release)
+    target_compile_options(RFF PRIVATE
+            -O3 -ffast-math -funroll-loops -march=native -mtune=native -mllvm -inline-threshold=${RFF_INLINE_THRESHOLD}
+    )
+elseif (RFF_BUILD_PROFILE STREQUAL "RelWithDebInfo")
+    set(CMAKE_BUILD_TYPE RelWithDebInfo)
+    target_compile_options(RFF PRIVATE
+            -O3 -ffast-math -fno-omit-frame-pointer -funroll-loops -march=x86-64 -mtune=generic -mllvm -inline-threshold=${RFF_INLINE_THRESHOLD}
+    )
+else ()
+    message("${RFF_HELP_BUILD}")
+    message(FATAL_ERROR "Configuration aborted.")
+endif ()

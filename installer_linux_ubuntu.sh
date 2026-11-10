@@ -135,14 +135,7 @@ git clone --depth 1 "$repo_url" "$source_dir"
 
 step "Downloading external source dependencies"
 
-mkdir -p "$source_dir/extern"
-while IFS= read -r dependency_url; do
-    dependency_url="${dependency_url%%#*}"
-    dependency_url="$(printf '%s' "$dependency_url" | xargs)"
-    [[ -z "$dependency_url" ]] && continue
-    dependency_name="$(basename "${dependency_url%.git}")"
-    git clone --depth 1 "$dependency_url" "$source_dir/extern/$dependency_name"
-done < "$source_dir/extern_sources"
+git -C "$source_dir" submodule update --init --recursive
 
 step "Building RFF-EXP"
 

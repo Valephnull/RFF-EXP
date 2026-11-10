@@ -4,12 +4,18 @@
 
 #pragma once
 
+#include <algorithm>
+#include <unordered_map>
+
+
+#include "../constants/UIConstants.hpp"
 #include "../settings/Selectable.h"
 #include "imgui.h"
 
 // Use PascalCase for method name in accordance with the ImGui naming convention
 namespace merutilm::rff2::ImGuiUtils {
 
+    constexpr static size_t COLS = 2;
     template<typename Enum>
         requires std::is_enum_v<Enum>
     static bool Dropdown(const char *label, Enum *currentValue) {
@@ -35,7 +41,7 @@ namespace merutilm::rff2::ImGuiUtils {
         return result;
     }
 
-    static void BeginSettings(const char* txt) {
+    static void BeginSettings(const char *txt) {
         ImGui::SeparatorText(txt);
         ImGui::Indent();
         ImGui::PushID(txt);
@@ -45,7 +51,7 @@ namespace merutilm::rff2::ImGuiUtils {
         ImGui::Unindent();
     }
 
-    static void NextSettings(const char* txt) {
+    static void NextSettings(const char *txt) {
         EndSettings();
         BeginSettings(txt);
     }
@@ -60,4 +66,69 @@ namespace merutilm::rff2::ImGuiUtils {
             ImGui::EndTooltip();
         }
     }
-}
+
+
+    static void BeginSmoothScrollableChild(const char *id, const ImVec2 &size = ImVec2(0, 0), const ImGuiChildFlags flags = 0) {
+        ImGui::BeginChild(id, size, flags, ImGuiWindowFlags_NoScrollWithMouse);
+
+        static std::unordered_map<const char*, float> dstScrollMap;
+        auto result = dstScrollMap.find(id);
+        if (result == dstScrollMap.end()) {
+            result = dstScrollMap.try_emplace(id, 0).first;
+        }
+        float& dstScroll = result->second;
+        const auto &io = ImGui::GetIO();
+
+        if (ImGui::IsWindowHovered() && io.MouseWheel != 0) {
+            dstScroll -= Constants::UI::SMOOTH_SCROLL_SENSITIVITY * io.MouseWheel;
+        }
+
+        if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+            dstScroll = ImGui::GetScrollY();
+        }
+
+        dstScroll = std::clamp(dstScroll, 0.0f, ImGui::GetScrollMaxY());
+
+        const float t = 1.0f - std::exp(-Constants::UI::SMOOTH_SCROLL_SPEED * io.DeltaTime);
+        const float scroll = std::lerp(ImGui::GetScrollY(), dstScroll, t);
+
+        ImGui::SetScrollY(scroll);
+    }
+
+
+    static bool BeginTabItem(const char *str) {
+        if (!ImGui::BeginTabItem(str))
+            return false;
+
+        BeginSmoothScrollableChild(str);
+        return true;
+    }
+    static void EndTabItem() {
+        ImGui::EndChild();
+        ImGui::EndTabItem();
+    }
+
+
+    static bool BeginPresetExecutor(const char *txt) {
+        BeginSettings(txt);
+        if (!ImGui::BeginTable(txt, COLS)) {
+            EndSettings();
+            return false;
+        }
+        return true;
+    }
+    static void EndPresetExecutor() {
+        ImGui::EndTable();
+        EndSettings();
+    }
+
+
+    template<typename App, typename Preset>
+    static void AddPresetExecutor(App &app, Preset preset) {
+        const std::string name = preset.getName();
+        ImGui::TableNextColumn();
+        if (ImGui::Button(name.data(), ImVec2(-FLT_MIN, 0))) {
+            app.applyPreset(preset);
+        }
+    }
+} // namespace merutilm::rff2::ImGuiUtils

@@ -22,7 +22,7 @@ namespace merutilm::rff2 {
         bool popupRequested = false;
         double lastSaveTime = -1;
         float lastLogZoom = 0;
-        uint64_t lastMaxIteration = 0;
+        itt::ptb lastMaxIteration = 0;
         std::string lastReal;
         std::string lastImag;
 

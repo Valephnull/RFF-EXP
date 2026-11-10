@@ -1,5 +1,6 @@
 //
 // Created by Merutilm on 10/7/26.
+// Unused
 //
 
 #include "H264VideoEncoder.hpp"
@@ -94,7 +95,7 @@ namespace merutilm::rff2 {
         cb.submit(&fence, {}, {});
         fence.waitAndReset();
 
-        // update layout
+        // publish.sh layout
         dst.layout[0] = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
         dst.access[0] = VK_ACCESS_TRANSFER_WRITE_BIT;
         return true;

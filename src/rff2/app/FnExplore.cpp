@@ -11,8 +11,8 @@
 #include <mutex>
 
 #include <cassert>
-#include "../util/Utilities.h"
 #include "../util/ImGuiUtils.hpp"
+#include "../util/Utilities.h"
 
 #include "../constants/Constants.hpp"
 #include "../mb/MB2Locator.hpp"
@@ -40,6 +40,11 @@ namespace merutilm::rff2 {
     void FnExplore::recompute(RFF2 &app) {
         if (ImGui::Button("Recompute", ImVec2(-FLT_MIN, 0))) {
             return app.getRequests().requestRecompute();
+        }
+    }
+    void FnExplore::regenerateApprox(RFF2 &app) {
+        if (ImGui::Button("Regenerate Approximation", ImVec2(-FLT_MIN, 0))) {
+            return app.getRequests().requestRecompute(RecomputeMode::APPROX);
         }
     }
     void FnExplore::reset(RFF2 &app) {
@@ -76,6 +81,7 @@ namespace merutilm::rff2 {
         auto &frt = app.getSettings().fractal;
         ImGui::Checkbox("Reuse Reference", &frt.reference.reuse);
     }
+
 
     void FnExplore::locateMinibrot(RFF2 &app) {
         static bool showNewtonWindow = false;

@@ -91,8 +91,7 @@ namespace merutilm::rff2 {
         if (pendingRecovery) {
             ImGui::Separator();
             ImGui::Text("Log zoom: %.6f", pendingRecovery->logZoom);
-            ImGui::Text("Iterations: %llu",
-                        static_cast<unsigned long long>(pendingRecovery->maxIteration));
+            ImGui::Text("Iterations: %s", itt::u128tostr(pendingRecovery->maxIteration).c_str());
         }
 
         const char *acceptLabel = crashAutosave ? "Recover" : "Reload";

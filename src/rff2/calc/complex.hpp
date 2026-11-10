@@ -11,8 +11,8 @@ namespace merutilm::rff2 {
         Num re;
         Num im;
 
-        inline static const complex ZERO = {Num(0), Num(0)};
-        inline static const complex ONE = {Num(1), Num(0)};
+        static const complex ZERO;
+        static const complex ONE;
 
         template<Number NCast>
         explicit operator complex<NCast>() const {
@@ -20,7 +20,7 @@ namespace merutilm::rff2 {
         }
 
         friend complex operator*(const complex a, const complex b) {
-            return complex{a.re * b.re - a.im * b.im, a.re * b.im + a.im * b.re};
+            return complex{.re = a.re * b.re - a.im * b.im, .im = a.re * b.im + a.im * b.re};
         }
 
 
@@ -40,29 +40,31 @@ namespace merutilm::rff2 {
         friend complex &operator+=(complex &a, const complex b) { return a = a + b; }
 
         template<Number N2>
-        friend complex operator+(const N2 a, const complex b) { return complex{a + b.re, b.im}; }
+        friend complex operator+(const N2 a, const complex b) { return complex{.re = a + b.re, .im = b.im}; }
 
         template<Number N2>
-        friend complex operator+(const complex a, const N2 b) { return complex{a.re + b, a.im}; }
+        friend complex operator+(const complex a, const N2 b) { return complex{.re = a.re + b, .im = a.im}; }
 
-        friend complex operator-(const complex a, const complex b) { return complex{a.re - b.re, a.im - b.im}; }
+        friend complex operator-(const complex a, const complex b) { return complex{.re = a.re - b.re, .im = a.im - b.im}; }
 
         friend complex &operator-=(complex &a, const complex b) { return a = a - b; }
 
         template<Number N2>
-        friend complex operator-(const complex a, const N2 b) { return complex{a.re - b, a.im}; }
+        friend complex operator-(const complex a, const N2 b) { return complex{.re = a.re - b, .im = a.im}; }
 
         template<Number N2>
-        friend complex operator-(const N2 a, const complex b) { return complex{a - b.re, -b.im}; }
+        friend complex operator-(const N2 a, const complex b) { return complex{.re = a - b.re, .im = -b.im}; }
 
         template<Number N2>
-        friend complex operator/(const complex a, const N2 b) { return complex{a.re / b, a.im / b}; }
+        friend complex operator/(const complex a, const N2 b) { return complex{.re = a.re / b, .im = a.im / b}; }
 
-        friend bool operator==(const complex &a, const complex &b) { return a.re == b.re && a.im == b.im; }
+        friend bool operator==(const complex &a, const complex &b) = default;
 
         [[nodiscard]] Num norm_sqr() const { return re * re + im * im; }
 
-        [[nodiscard]] Num norm_approx() const { return rff_math::hypot_approx(re, im); }
+        [[nodiscard]] Num norm() const { return rff_math::sqrt(norm_sqr()); }
+
+        [[nodiscard]] Num max() const { return std::max(rff_math::abs(re), rff_math::abs(im)); }
 
         [[nodiscard]] bool is_zero() const { return rff_math::is_zero(re) && rff_math::is_zero(im); }
 
@@ -83,4 +85,9 @@ namespace merutilm::rff2 {
             return out << obj.to_string();
         }
     };
+    template<Number Num>
+    constexpr complex<Num> complex<Num>::ZERO = {.re = Num(0), .im = Num(0)};
+    template<Number Num>
+    constexpr complex<Num> complex<Num>::ONE = {.re = Num(1), .im = Num(0)};
+
 } // namespace merutilm::rff2

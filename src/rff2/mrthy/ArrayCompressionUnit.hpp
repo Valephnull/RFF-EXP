@@ -8,7 +8,7 @@
 
 namespace merutilm::rff2 {
     /**
-     * <b>Array Compression Tool</b>
+     * <b>Array Compress Unit</b>
      * <br/>
      * A class for compressing when detecting duplicated elements in an array. <br/>
      * It can be used if there are duplicate values in the array. <br/>
@@ -21,26 +21,35 @@ namespace merutilm::rff2 {
      * @param start the start index of uncompressed array
      * @param end the end index of uncompressed array
      */
-    struct ArrayCompressionTool {
-        const uint64_t rebase;
-        const uint64_t start;
-        const uint64_t end;
+    template <typename Index>
+    struct ArrayCompressionUnit {
+        const Index rebase;
+        const Index start;
+        const Index end;
 
-        explicit ArrayCompressionTool(uint64_t rebase, uint64_t start, uint64_t end);
+        explicit ArrayCompressionUnit(Index rebase, Index start, Index end);
 
         /**
         * Gets the range of current tool : @code end - start + 1@endcode
         * @return The range of current tool.
         */
-        [[nodiscard]] uint64_t range() const;
+        [[nodiscard]] Index range() const;
     };
 
 
-    inline ArrayCompressionTool::ArrayCompressionTool(const uint64_t rebase, const uint64_t start,
-                                                      const uint64_t end) : rebase(rebase), start(start), end(end) {
+    template <typename Index>
+    ArrayCompressionUnit<Index>::ArrayCompressionUnit(const Index rebase, const Index start,
+                                                      const Index end) : rebase(rebase), start(start), end(end) {
     }
 
-    inline uint64_t ArrayCompressionTool::range() const {
+    template <typename Index>
+    Index ArrayCompressionUnit<Index>::range() const {
         return end - start + 1;
     }
+
+    using ReferenceCompressionUnit = ArrayCompressionUnit<itt::ref>;
+    using PulledMPACompressionUnit = ArrayCompressionUnit<itt::ref>;
+
+    using ReferenceCompressor = std::vector<ReferenceCompressionUnit>;
+    using PulledMPACompressor = std::vector<PulledMPACompressionUnit>;
 }

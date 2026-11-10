@@ -606,7 +606,7 @@ namespace merutilm::rff2 {
             manifest.useParallelReference = fractal.reference.useParallelRefCalculation;
             manifest.referenceSynchronizationInterval = fractal.reference.sync.referenceSynchronizationInterval;
             manifest.referenceSynchronizationRadiusPower = fractal.reference.sync.referenceSynchronizationRadiusPower;
-            manifest.compressCriteria = fractal.reference.compression.compressCriteria;
+            manifest.compressCriteria = fractal.reference.compression.minCompressSize;
             manifest.compressionThresholdPower = fractal.reference.compression.compressionThresholdPower;
             manifest.useSeriesApproximation = fractal.sa.use;
             manifest.appliedTermsCount = fractal.sa.appliedTermsCount;
@@ -616,9 +616,11 @@ namespace merutilm::rff2 {
             manifest.maximumMultiplierBetweenLevel = fractal.mpa.maxMultiplierBetweenLevel;
             manifest.approximationEpsilonPower = fractal.mpa.epsilonPower;
             manifest.approximationSelectionMethod = static_cast<uint8_t>(fractal.mpa.selectionMethod);
-            manifest.compressApproximation = fractal.mpa.useCompress;
-            manifest.parallelizeApproximation = fractal.mpa.useParallelization;
+            manifest.compressApproximation = false;
+            manifest.parallelizeApproximation = false;
             manifest.maxIteration = fractal.perturb.maxIteration;
+            manifest.referencePartitionSize = fractal.reference.partitionSize;
+            manifest.simd = app.getSettings().render.simd;
             manifest.decimalizeIterationMethod = static_cast<uint8_t>(fractal.perturb.decimalizeIterationMethod);
             manifest.autoMaxIteration = fractal.perturb.autoMaxIteration;
             manifest.interiorDetectRadiusPower = fractal.perturb.interiorDetectRadiusPower;

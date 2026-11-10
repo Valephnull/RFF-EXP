@@ -55,6 +55,7 @@ namespace merutilm::rff2 {
         template<Number Num>
         class OrbitEvaluator final {
             const MB2Reference<Num> &reference;
+            SRPCCursor<itt::ref, complex<Num>> cursor;
             complex<dex> dc;
             uint64_t referenceIteration = 0;
             uint64_t iteration = 0;
@@ -63,16 +64,17 @@ namespace merutilm::rff2 {
             complex<dex> derivative = complex<dex>::ZERO;
 
         public:
-            OrbitEvaluator(const MB2Reference<Num> &reference, const complex<dex> dc) : reference(reference), dc(dc) {}
+            OrbitEvaluator(const MB2Reference<Num> &reference, const complex<dex> dc) :
+                reference(reference), cursor(reference.makeCursor()), dc(dc) {}
 
             [[nodiscard]] bool advance() {
                 derivative = normalized(z * derivative * dex(2.0) + complex<dex>::ONE);
 
-                const complex<dex> referenceZ = toDex(reference.orbit(referenceIteration));
+                const complex<dex> referenceZ = toDex(cursor.get(referenceIteration));
                 dz = normalized((referenceZ * dex(2.0) + dz) * dz + dc);
                 ++referenceIteration;
                 ++iteration;
-                z = normalized(toDex(reference.orbit(referenceIteration)) + dz);
+                z = normalized(toDex(cursor.get(referenceIteration)) + dz);
 
                 if (referenceIteration == reference.longestPeriod() || z.norm_sqr() < dz.norm_sqr()) {
                     referenceIteration = 0;

@@ -42,6 +42,8 @@ namespace merutilm::rff2 {
         writer.integer(autoIterationMultiplier);
         writer.boolean(absoluteIterationMode);
         writer.integer(frameCount);
+        writer.integer(referencePartitionSize);
+        writer.boolean(simd);
         return writer.take();
     }
 
@@ -49,7 +51,7 @@ namespace merutilm::rff2 {
                                        std::string &error) {
         RenderPoolBinaryReader reader(bytes);
         uint16_t version = 0;
-        if (!reader.integer(version) || version != FORMAT_VERSION || !reader.integer(result.id) ||
+        if (!reader.integer(version) || version == 0 || version > FORMAT_VERSION || !reader.integer(result.id) ||
             !reader.integer(result.windowWidth) || !reader.integer(result.windowHeight) ||
             !reader.floating(result.startLogZoom) || !reader.floating(result.zoomIncrement) ||
             !reader.floating(result.clarityMultiplier) || !reader.string(result.centerReal) ||
@@ -66,10 +68,18 @@ namespace merutilm::rff2 {
             !reader.floating(result.approximationEpsilonPower) ||
             !reader.integer(result.approximationSelectionMethod) ||
             !reader.boolean(result.compressApproximation) ||
-            !reader.boolean(result.parallelizeApproximation) || !reader.integer(result.maxIteration) ||
+            !reader.boolean(result.parallelizeApproximation) ||
+            !(version >= 2 ? reader.integer(result.maxIteration) : [&] {
+                uint64_t legacyMax = 0;
+                const bool ok = reader.integer(legacyMax);
+                result.maxIteration = legacyMax;
+                return ok;
+            }()) ||
             !reader.integer(result.decimalizeIterationMethod) || !reader.boolean(result.autoMaxIteration) ||
             !reader.integer(result.interiorDetectRadiusPower) || !reader.integer(result.autoIterationMultiplier) ||
-            !reader.boolean(result.absoluteIterationMode) || !reader.integer(result.frameCount) || !reader.finished()) {
+            !reader.boolean(result.absoluteIterationMode) || !reader.integer(result.frameCount) ||
+            (version >= 2 && (!reader.integer(result.referencePartitionSize) || !reader.boolean(result.simd))) ||
+            !reader.finished()) {
             error = version == FORMAT_VERSION ? "Incomplete render-pool job" : "Unsupported render-pool job version";
             return false;
         }
@@ -109,9 +119,11 @@ namespace merutilm::rff2 {
         fractal.reference.useParallelRefCalculation = useParallelReference;
         fractal.reference.sync.referenceSynchronizationInterval = referenceSynchronizationInterval;
         fractal.reference.sync.referenceSynchronizationRadiusPower = referenceSynchronizationRadiusPower;
-        fractal.reference.compression.compressCriteria = compressCriteria;
+        fractal.reference.compression.minCompressSize = compressCriteria;
         fractal.reference.compression.compressionThresholdPower = compressionThresholdPower;
         fractal.reference.reuse = false;
+        fractal.reference.partitionSize = referencePartitionSize;
+        settings.render.simd = simd;
         fractal.sa.use = useSeriesApproximation;
         fractal.sa.appliedTermsCount = appliedTermsCount;
         fractal.sa.validatedTermsCount = validatedTermsCount;
@@ -120,8 +132,6 @@ namespace merutilm::rff2 {
         fractal.mpa.maxMultiplierBetweenLevel = maximumMultiplierBetweenLevel;
         fractal.mpa.epsilonPower = approximationEpsilonPower;
         fractal.mpa.selectionMethod = static_cast<FrtMPASelectionMethod>(approximationSelectionMethod);
-        fractal.mpa.useCompress = compressApproximation;
-        fractal.mpa.useParallelization = parallelizeApproximation;
         fractal.perturb.maxIteration = maxIteration;
         fractal.perturb.decimalizeIterationMethod =
                 static_cast<FrtDecimalizeIterationMethod>(decimalizeIterationMethod);

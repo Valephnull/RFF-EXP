@@ -182,21 +182,8 @@ Assert-NativeSuccess "Cloning RFF-EXP"
 
 Write-Step "Downloading external source dependencies"
 
-$ExternDir = Join-Path $SourceDir "extern"
-New-Item -ItemType Directory -Path $ExternDir -Force | Out-Null
-$ExternSourcesFile = Join-Path $SourceDir "extern_sources"
-$ExternRepos = Get-Content -LiteralPath $ExternSourcesFile |
-    ForEach-Object { $_.Trim() } |
-    Where-Object { $_ -and -not $_.StartsWith("#") }
-
-foreach ($Url in $ExternRepos)
-{
-    $DirectoryName = [System.IO.Path]::GetFileNameWithoutExtension($Url.TrimEnd('/'))
-    $Destination = Join-Path $ExternDir $DirectoryName
-    $DestinationUnix = ConvertTo-MsysPath $Msys2Bash $Destination
-    & $Msys2Bash -lc 'git clone --depth 1 "$1" "$2"' -- $Url $DestinationUnix
-    Assert-NativeSuccess "Cloning external dependency $Url"
-}
+& $Msys2Bash -lc 'git -C "$1" submodule update --init --recursive' -- $SourceDirUnix
+Assert-NativeSuccess "Initializing pinned source dependencies"
 
 Write-Step "Building RFF-EXP"
 

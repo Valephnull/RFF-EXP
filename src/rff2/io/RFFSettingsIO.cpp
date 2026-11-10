@@ -287,7 +287,7 @@ namespace merutilm::rff2 {
             writer.boolean(fractal.reference.useParallelRefCalculation);
             writer.value(fractal.reference.sync.referenceSynchronizationInterval);
             writer.value(fractal.reference.sync.referenceSynchronizationRadiusPower);
-            writer.value(fractal.reference.compression.compressCriteria);
+            writer.value(fractal.reference.compression.minCompressSize);
             writer.value(fractal.reference.compression.compressionThresholdPower);
             writer.boolean(fractal.reference.reuse);
             writer.boolean(fractal.reference.useFixedPrecision);
@@ -302,8 +302,8 @@ namespace merutilm::rff2 {
             writer.value(fractal.mpa.maxMultiplierBetweenLevel);
             writer.value(fractal.mpa.epsilonPower);
             writer.enumeration(fractal.mpa.selectionMethod);
-            writer.boolean(fractal.mpa.useCompress);
-            writer.boolean(fractal.mpa.useParallelization);
+            writer.boolean(false); // Legacy layout slot, compression is now automatic.
+            writer.boolean(false); // Legacy layout slot.
 
             writer.value(fractal.perturb.maxIteration);
             writer.enumeration(fractal.perturb.decimalizeIterationMethod);
@@ -342,6 +342,8 @@ namespace merutilm::rff2 {
             writer.value(settings.explore.autoAimRadiusPixels);
             writer.boolean(settings.explore.locator.burst);
             writer.boolean(settings.file.autoSaveBackup);
+            writer.value(fractal.reference.partitionSize);
+            writer.boolean(settings.render.simd);
         }
 
         bool readConfigPayload(Reader &reader, Settings &settings, uint32_t &width, uint32_t &height,
@@ -351,13 +353,15 @@ namespace merutilm::rff2 {
             if (!reader.text(real) || !reader.text(imag))
                 return false;
 
+            bool obsoleteCompressApproximation = false;
+            bool obsoleteParallelApproximation = false;
             auto &fractal = settings.fractal;
             if (!reader.value(fractal.general.bailout) || !reader.value(fractal.general.logZoom) ||
                 !reader.value(fractal.general.threads) ||
                 !reader.boolean(fractal.reference.useParallelRefCalculation) ||
                 !reader.value(fractal.reference.sync.referenceSynchronizationInterval) ||
                 !reader.value(fractal.reference.sync.referenceSynchronizationRadiusPower) ||
-                !reader.value(fractal.reference.compression.compressCriteria) ||
+                !reader.value(fractal.reference.compression.minCompressSize) ||
                 !reader.value(fractal.reference.compression.compressionThresholdPower))
                 return false;
             if (version == 1) {
@@ -373,8 +377,13 @@ namespace merutilm::rff2 {
                 !reader.value(fractal.mpa.minSkipReference) ||
                 !reader.value(fractal.mpa.maxMultiplierBetweenLevel) || !reader.value(fractal.mpa.epsilonPower) ||
                 !reader.enumeration(fractal.mpa.selectionMethod, 0, 1) ||
-                !reader.boolean(fractal.mpa.useCompress) || !reader.boolean(fractal.mpa.useParallelization) ||
-                !reader.value(fractal.perturb.maxIteration) ||
+                !reader.boolean(obsoleteCompressApproximation) || !reader.boolean(obsoleteParallelApproximation) ||
+                !(version >= 4 ? reader.value(fractal.perturb.maxIteration) : [&] {
+                    uint64_t legacyMax = 0;
+                    const bool ok = reader.value(legacyMax);
+                    fractal.perturb.maxIteration = legacyMax;
+                    return ok;
+                }()) ||
                 !reader.enumeration(fractal.perturb.decimalizeIterationMethod, 0, 4) ||
                 !reader.boolean(fractal.perturb.autoMaxIteration) ||
                 !reader.value(fractal.perturb.interiorDetectRadiusPower) ||
@@ -413,6 +422,10 @@ namespace merutilm::rff2 {
                 !reader.value(settings.explore.autoAimRadiusPixels) ||
                 (version >= 2 && (!reader.boolean(settings.explore.locator.burst) ||
                                   !reader.boolean(settings.file.autoSaveBackup))))
+                return false;
+
+            if (version >= 4 && (!reader.value(fractal.reference.partitionSize) ||
+                                 !reader.boolean(settings.render.simd)))
                 return false;
 
             const auto allFinite = [](const std::initializer_list<double> values) {

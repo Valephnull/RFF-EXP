@@ -17,19 +17,18 @@ namespace {
                                 .useParallelRefCalculation = true,
                                 .sync = {.referenceSynchronizationInterval = 7,
                                          .referenceSynchronizationRadiusPower = 5},
-                                .compression = {.compressCriteria = 1234, .compressionThresholdPower = 9},
+                                .compression = {.minCompressSize = 1234, .compressionThresholdPower = 9},
                                 .reuse = true,
                                 .useFixedPrecision = true,
+                                .partitionSize = 1024,
                                 .fixedPrecisionNeg = 32,
                         },
                         .sa = {.use = true, .appliedTermsCount = 9, .validatedTermsCount = 2, .epsilonPower = -6.0f},
                         .mpa = {.minSkipReference = 8,
                                 .maxMultiplierBetweenLevel = 4,
                                 .epsilonPower = -7.0f,
-                                .selectionMethod = FrtMPASelectionMethod::HIGHEST,
-                                .useCompress = true,
-                                .useParallelization = true},
-                        .perturb = {.maxIteration = 123456,
+                                .selectionMethod = FrtMPASelectionMethod::HIGHEST},
+                        .perturb = {.maxIteration = (itt::ptb{1} << 90) + 123456,
                                     .decimalizeIterationMethod = FrtDecimalizeIterationMethod::LOG,
                                     .autoMaxIteration = false,
                                     .interiorDetectRadiusPower = 8,
@@ -119,6 +118,7 @@ int main() {
     assert(loaded.fractal.reference.center.clone_imag().to_string() ==
            original.fractal.reference.center.clone_imag().to_string());
     assert(loaded.fractal.perturb.maxIteration == original.fractal.perturb.maxIteration);
+    assert(loaded.fractal.reference.partitionSize == original.fractal.reference.partitionSize);
     assert(loaded.render.computeShader.allowedGlitchPixelCount == 42);
     assert(loaded.shader.palette.colors.size() == 2);
     assert(loaded.shader.palette.colors[1].b == original.shader.palette.colors[1].b);

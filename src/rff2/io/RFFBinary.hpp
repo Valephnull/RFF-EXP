@@ -23,9 +23,9 @@ namespace merutilm::rff2 {
 
     struct RFFBinary {
 
-        // Version 5 keeps the upstream v4 surface/interior-color format while
-        // replacing its noise-reduction payload with RFF-EXP sampling controls.
-        static constexpr uint32_t VERSION = 5;
+        // Version 6 uses upstream's sized iteration counters. Version 5 was
+        // also used by older RFF-EXP files with 64-bit iteration counters.
+        static constexpr uint32_t VERSION = 6;
 
         static uint32_t readVersion(std::ifstream &in, std::byte *raw = nullptr) {
 

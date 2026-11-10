@@ -12,8 +12,6 @@
 
 #include "../app/IOUtilities.h"
 #include "../constants/Constants.hpp"
-#include "vulkan_helper/base/logger.hpp"
-#include "vulkan_helper/util/BufferImageUtils.hpp"
 
 namespace merutilm::rff2 {
 
@@ -48,7 +46,7 @@ namespace merutilm::rff2 {
     inline const RFFDynamicMapBinary RFFDynamicMapBinary::DEFAULT =
             RFFDynamicMapBinary(0, 0, 0, std::vector<double>(), 0, 0);
 
-    RFFDynamicMapBinary::RFFDynamicMapBinary(const double logZoom, const uint64_t period, const uint64_t maxIteration,
+    RFFDynamicMapBinary::RFFDynamicMapBinary(const double logZoom, const itt::ptb period, const itt::ptb maxIteration,
                                              std::vector<double> iterations, const uint16_t width,
                                              const uint16_t height) :
         RFFMapBinary(logZoom), period(period), maxIteration(maxIteration), iterations(std::move(iterations)),
@@ -58,31 +56,15 @@ namespace merutilm::rff2 {
 
 
     RFFDynamicMapBinary RFFDynamicMapBinary::read(std::ifstream &in) {
-
-        uint32_t wh = 0;
-        const uint32_t version = readVersion(in, reinterpret_cast<std::byte *>(&wh));
-        uint16_t w;
-        uint16_t h;
-        double lz;
-        if (version == 0) {
-            w = static_cast<uint16_t>(wh & 0xffffU);
-            h = static_cast<uint16_t>((wh >> 16u) & 0xffffU);
-            float z;
-            IOUtilities::readAndDecode(in, &z);
-            lz = z;
-        } else {
-            IOUtilities::readAndDecode(in, &w);
-            IOUtilities::readAndDecode(in, &h);
-            IOUtilities::readAndDecode(in, &lz);
-        }
-
-        uint64_t p;
-        IOUtilities::readAndDecode(in, &p);
-        uint64_t m;
-        IOUtilities::readAndDecode(in, &m);
-        auto i = std::vector<double>(w * h);
-        IOUtilities::readAndDecode(in, &i);
-        return RFFDynamicMapBinary{lz, p, m, i, w, h};
+        const auto start = in.tellg();
+        in.seekg(0, std::ios::end);
+        const auto end = in.tellg();
+        if (start < 0 || end <= start || static_cast<uint64_t>(end - start) > std::numeric_limits<size_t>::max())
+            return DEFAULT;
+        in.seekg(start);
+        std::vector<std::byte> bytes(static_cast<size_t>(end - start));
+        in.read(reinterpret_cast<char *>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+        return in ? decode(bytes) : DEFAULT;
     }
 
     RFFDynamicMapBinary RFFDynamicMapBinary::read(const std::filesystem::path &path) {
@@ -121,12 +103,36 @@ namespace merutilm::rff2 {
                 return DEFAULT;
         }
 
-        uint64_t p = 0;
-        uint64_t m = 0;
-        if (!readValue(bytes, offset, p) || !readValue(bytes, offset, m) || w == 0 || h == 0 || m == 0)
+        if (w == 0 || h == 0)
             return DEFAULT;
         const size_t elementCount = static_cast<size_t>(w) * h;
-        if (offset > bytes.size() || bytes.size() - offset != elementCount * sizeof(double))
+        const size_t pixelBytes = elementCount * sizeof(double);
+        itt::ptb p = 0;
+        itt::ptb m = 0;
+        // RFF-EXP v5 used two plain uint64 values; upstream v5 uses sized counters.
+        const bool legacy = versionOrDimensions <= 4 || versionOrDimensions > (1u << 23u) ||
+                            (versionOrDimensions == 5 && bytes.size() - offset == pixelBytes + 2 * sizeof(uint64_t));
+        if (legacy) {
+            uint64_t p64 = 0;
+            uint64_t m64 = 0;
+            if (!readValue(bytes, offset, p64) || !readValue(bytes, offset, m64))
+                return DEFAULT;
+            p = p64;
+            m = m64;
+        } else {
+            const auto readCounter = [&](itt::ptb &value) {
+                uint64_t size = 0;
+                if (!readValue(bytes, offset, size) || size == 0 || size > sizeof(value) ||
+                    offset > bytes.size() || bytes.size() - offset < size)
+                    return false;
+                std::memcpy(&value, bytes.data() + offset, static_cast<size_t>(size));
+                offset += static_cast<size_t>(size);
+                return true;
+            };
+            if (!readCounter(p) || !readCounter(m))
+                return DEFAULT;
+        }
+        if (m == 0 || offset > bytes.size() || bytes.size() - offset != pixelBytes)
             return DEFAULT;
         std::vector<double> values(elementCount);
         std::memcpy(values.data(), bytes.data() + offset, elementCount * sizeof(double));
@@ -143,7 +149,9 @@ namespace merutilm::rff2 {
         appendValue(bytes, width);
         appendValue(bytes, height);
         appendValue(bytes, logZoom);
+        appendValue(bytes, uint64_t{sizeof(period)});
         appendValue(bytes, period);
+        appendValue(bytes, uint64_t{sizeof(maxIteration)});
         appendValue(bytes, maxIteration);
         const size_t offset = bytes.size();
         bytes.resize(offset + iterations.size() * sizeof(double));
@@ -205,7 +213,9 @@ namespace merutilm::rff2 {
         IOUtilities::encodeAndWrite(out, width);
         IOUtilities::encodeAndWrite(out, height);
         IOUtilities::encodeAndWrite(out, logZoom);
+        IOUtilities::encodeAndWrite(out, sizeof(period));
         IOUtilities::encodeAndWrite(out, period);
+        IOUtilities::encodeAndWrite(out, sizeof(maxIteration));
         IOUtilities::encodeAndWrite(out, maxIteration);
         IOUtilities::encodeAndWrite(out, iterations);
     }

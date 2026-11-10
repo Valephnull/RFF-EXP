@@ -22,6 +22,7 @@
 #include "../preset/shader/palette/ShdPalettePresets.hpp"
 #include "../preset/shader/stripe/ShdStripePresets.hpp"
 #include "../preset/shader/surface/ShdSurfacePresets.hpp"
+#include "../util/ImGuiUtils.hpp"
 #include "../util/Utilities.h"
 #include "../vulkan/GPCDownsampleForBlur.hpp"
 #include "../vulkan/SharedImageContextIndices.hpp"
@@ -117,42 +118,51 @@ namespace merutilm::rff2 {
                 backgroundThreads.notifyAll();
             }
         }
-
-        auto expected = ComputeState::REQUESTED;
-        if (requests.recomputeRequestedState.compare_exchange_weak(expected, ComputeState::RUNNING)) {
+        bool doRecompute;
+        RecomputeMode recomputeMode;
+        {
+            std::scoped_lock lock2(requests.recomputeMutex);
+            auto expected = ComputeState::REQUESTED;
+            doRecompute = requests.recomputeRequestedState.compare_exchange_weak(expected, ComputeState::RUNNING);
+            recomputeMode = requests.recomputeMode;
+        }
+        if (doRecompute) {
             cancelGuidedZoomSearch();
-            // This render snapshots the latest wheel-adjusted location.
             wheelZoomRenderPending = false;
-            recomputeThreaded();
+            recomputeThreaded(recomputeMode);
             // it is threaded, do not notify
         }
     }
-    std::unique_ptr<MB2RenderDataBase>
-    RFF2::createAppropriateRenderData(const bool computeShader, const double logZoomTest, const double startTime,
-                                      const FractalSettings &frt, const dex dcMax, const int64_t exp10,
-                                      const uint64_t refInitialCapacity) {
+    RFFResult RFF2::createAppropriateRenderData(const bool computeShader, const double logZoomTest,
+                                                const double startTime, const FractalSettings &frt, const dex dcMax,
+                                                const int64_t exp10, const size_t refInitialCapacity) {
         if (computeShader) {
             if (logZoomTest > Constants::Fractal::COMPUTESHADER_ZOOM_THRESHOLD) {
-                return std::make_unique<FexMB2RenderData>(state, frt, computeShader, *approxTableCache, dcMax, exp10,
+                return FexMB2RenderData::createRenderData(state, frt, computeShader, *approxTableCache, dcMax, exp10,
                                                           refInitialCapacity, getFnRefCalc(startTime),
-                                                          getFnSeriesApprox(startTime), getFnCreatingTable(startTime));
+                                                          getFnSeriesApprox(startTime), getFnCreatingTable(startTime),
+                                                          renderData);
             } else {
-                return std::make_unique<FloatMB2RenderData>(
-                        state, frt, computeShader, *approxTableCache, dcMax, exp10, refInitialCapacity,
-                        getFnRefCalc(startTime), getFnSeriesApprox(startTime), getFnCreatingTable(startTime));
+                return FloatMB2RenderData::createRenderData(state, frt, computeShader, *approxTableCache, dcMax, exp10,
+                                                            refInitialCapacity, getFnRefCalc(startTime),
+                                                            getFnSeriesApprox(startTime), getFnCreatingTable(startTime),
+                                                            renderData);
             }
         } else {
             if (logZoomTest > Constants::Fractal::MULTITHREAD_ZOOM_THRESHOLD) {
-                return std::make_unique<DexMB2RenderData>(state, frt, computeShader, *approxTableCache, dcMax, exp10,
+                return DexMB2RenderData::createRenderData(state, frt, computeShader, *approxTableCache, dcMax, exp10,
                                                           refInitialCapacity, getFnRefCalc(startTime),
-                                                          getFnSeriesApprox(startTime), getFnCreatingTable(startTime));
+                                                          getFnSeriesApprox(startTime), getFnCreatingTable(startTime),
+                                                          renderData);
             } else {
-                return std::make_unique<DoubleMB2RenderData>(
-                        state, frt, computeShader, *approxTableCache, dcMax, exp10, refInitialCapacity,
-                        getFnRefCalc(startTime), getFnSeriesApprox(startTime), getFnCreatingTable(startTime));
+                return DoubleMB2RenderData::createRenderData(state, frt, computeShader, *approxTableCache, dcMax, exp10,
+                                                             refInitialCapacity, getFnRefCalc(startTime),
+                                                             getFnSeriesApprox(startTime),
+                                                             getFnCreatingTable(startTime), renderData);
             }
         }
     }
+
 
     void RFF2::updateMouseInteraction() {
         double mdx;
@@ -166,9 +176,9 @@ namespace merutilm::rff2 {
             y >= getIterationBufferHeight()) {
             return;
         }
-        auto it = static_cast<uint64_t>((*renderer->visibleIterationBufferData)(x, y));
+        auto it = static_cast<itt::ptb>((*renderer->visibleIterationBufferData)(x, y));
         setStatusMessage(Constants::Status::ITERATION_STATUS,
-                         std::format(std::locale("en_US.UTF-8"), "Iterations : {:L}", it));
+                         std::format("Iterations : {}", Utilities::formatThousands(it)));
     }
 
     void RFF2::update() {
@@ -204,7 +214,7 @@ namespace merutilm::rff2 {
         return Settings{
                 .file = {.autoSaveBackup = true},
                 .fractal =
-                        FractalSettings{.general = {.bailout = 4.f, .logZoom = 2, .threads = 15},
+                        FractalSettings{.general = {.bailout = 2.1f, .logZoom = 2, .threads = 15},
                                         .reference =
                                                 {
                                                         .center = fixed_point_complex("-0.85", "0",
@@ -214,6 +224,7 @@ namespace merutilm::rff2 {
                                                         .compression = ClcCompressPresets::None().genRefComp(),
                                                         .reuse = false,
                                                         .useFixedPrecision = false,
+                                                        .partitionSize = 512,
                                                         .fixedPrecisionNeg = 1,
                                                 },
                                         .sa = {.use = false,
@@ -228,7 +239,7 @@ namespace merutilm::rff2 {
                                                     .autoIterationMultiplier = 100,
                                                     .absoluteIterationMode = false}},
                 .render = {.display = RndDisplayPresets::Low().genDisplay(),
-                           .computeShader = RndComputePresets::General().genComputeShader()},
+                           .computeShader = RndComputePresets::None().genComputeShader()},
                 .shader = {.palette = ShdPalettePresets::Classic1().genPalette(),
                            .stripe = ShdStripePresets::Disabled().genStripe(),
                            .surface = ShdSurfacePresets::Disabled().genSurface(),
@@ -247,7 +258,7 @@ namespace merutilm::rff2 {
         return Settings{
                 .file = {.autoSaveBackup = true},
                 .fractal =
-                        FractalSettings{.general = {.bailout = 4.f,
+                        FractalSettings{.general = {.bailout = 2.1f,
                                                     .logZoom = 2,
                                                     .threads = std::thread::hardware_concurrency() - 1},
                                         .reference =
@@ -259,6 +270,7 @@ namespace merutilm::rff2 {
                                                         .compression = ClcCompressPresets::None().genRefComp(),
                                                         .reuse = false,
                                                         .useFixedPrecision = false,
+                                                        .partitionSize = 512,
                                                         .fixedPrecisionNeg = 1,
                                                 },
                                         .sa = {.use = false,
@@ -889,20 +901,24 @@ namespace merutilm::rff2 {
 
         ImGuiStyle &style = ImGui::GetStyle();
 
-        style.Colors[ImGuiCol_WindowBg] = ImVec4(0.08f, 0.09f, 0.11f, .8f);
-        style.Colors[ImGuiCol_TitleBg] = ImVec4(0.06f, 0.07f, 0.08f, .8f);
-        style.Colors[ImGuiCol_TitleBgActive] = ImVec4(0.12f, 0.14f, 0.18f, .9f);
-        style.Colors[ImGuiCol_Border] = ImVec4(0.25f, 0.25f, 0.28f, .8f);
-        style.Colors[ImGuiCol_Button] = ImVec4(0.24f, 0.24f, 0.24f, .9f);
-        style.Colors[ImGuiCol_ButtonHovered] = ImVec4(0.34f, 0.34f, 0.34f, 1.0f);
-        style.Colors[ImGuiCol_ButtonActive] = ImVec4(0.18f, 0.32f, 0.56f, 1.0f);
+        style.Colors[ImGuiCol_FrameBg] = ImVec4(0.13f, 0.14f, 0.16f, 1.0f);
+        style.Colors[ImGuiCol_FrameBgHovered] = ImVec4(0.21f, 0.23f, 0.26f, 1.0f);
+        style.Colors[ImGuiCol_FrameBgActive] = ImVec4(0.28f, 0.30f, 0.33f, 1.0f);
+
+        style.Colors[ImGuiCol_WindowBg] = ImVec4(0.06f, 0.07f, 0.09f, 1.0f);
+        style.Colors[ImGuiCol_TitleBg] = ImVec4(0.06f, 0.07f, 0.08f, 1.0f);
+        style.Colors[ImGuiCol_TitleBgActive] = ImVec4(0.12f, 0.14f, 0.18f, 1.0f);
+        style.Colors[ImGuiCol_Border] = ImVec4(0.21f, 0.23f, 0.26f, 1.0f);
+        style.Colors[ImGuiCol_Button] = ImVec4(0.21f, 0.23f, 0.26f, 1.0f);
+        style.Colors[ImGuiCol_ButtonHovered] = ImVec4(0.25f, 0.27f, 0.3f, 1.0f);
+        style.Colors[ImGuiCol_ButtonActive] = ImVec4(0.16f, 0.17f, 0.19f, 1.0f);
         style.Colors[ImGuiCol_SliderGrab] = ImVec4(0.24f, 0.50f, 0.95f, 1.0f);
         style.Colors[ImGuiCol_SliderGrabActive] = ImVec4(0.34f, 0.60f, 1.00f, 1.0f);
         style.Colors[ImGuiCol_CheckMark] = ImVec4(0.24f, 0.50f, 0.95f, 1.0f);
 
         style.Colors[ImGuiCol_Tab] = ImVec4(0.18f, 0.18f, 0.20f, 1.0f);
         style.Colors[ImGuiCol_TabHovered] = ImVec4(0.24f, 0.50f, 0.95f, 1.0f);
-        style.Colors[ImGuiCol_TabSelected] = ImVec4(0.24f, 0.50f, 0.95f, 0.85f);
+        style.Colors[ImGuiCol_TabSelected] = ImVec4(0.24f, 0.50f, 0.95f, 1.0f);
         style.Colors[ImGuiCol_TabDimmed] = ImVec4(0.16f, 0.16f, 0.17f, 1.0f);
         style.Colors[ImGuiCol_TabDimmedSelected] = ImVec4(0.20f, 0.20f, 0.22f, 1.0f);
 
@@ -929,11 +945,15 @@ namespace merutilm::rff2 {
         FnVideo::renderingProcessWindow(*this);
     }
 
+
     void RFF2::renderControlImGui() {
+        if (!showControl)
+            return;
+        ImGui::SetNextWindowSizeConstraints(ImVec2(300, 200), ImVec2(1920, 1080));
         ImGui::Begin("Control");
         const bool controlsLocked = isNavigationLocked();
         if (ImGui::BeginTabBar("Control")) {
-            if (ImGui::BeginTabItem("File")) {
+            if (ImGuiUtils::BeginTabItem("File")) {
                 ImGui::BeginDisabled(controlsLocked);
                 FnFile::saveShader(*this);
                 FnFile::saveMap(*this);
@@ -945,9 +965,9 @@ namespace merutilm::rff2 {
                 FnFile::loadLocation(*this);
                 FnFile::loadSettings(*this);
                 ImGui::EndDisabled();
-                ImGui::EndTabItem();
+                ImGuiUtils::EndTabItem();
             }
-            if (ImGui::BeginTabItem("Fractal")) {
+            if (ImGuiUtils::BeginTabItem("Fractal")) {
                 ImGui::BeginDisabled(controlsLocked);
                 FnFractal::reference(*this);
                 FnFractal::iterations(*this);
@@ -956,26 +976,27 @@ namespace merutilm::rff2 {
                 FnFractal::automaticIterations(*this);
                 FnFractal::absoluteIterationMode(*this);
                 ImGui::EndDisabled();
-                ImGui::EndTabItem();
+                ImGuiUtils::EndTabItem();
             }
-            if (ImGui::BeginTabItem("Render")) {
+            if (ImGuiUtils::BeginTabItem("Render")) {
                 ImGui::BeginDisabled(controlsLocked);
                 FnRender::setResolutionProperties(*this);
                 FnRender::setRenderProperties(*this);
+                FnRender::setSIMD(*this);
                 FnRender::setComputeShader(*this);
                 ImGui::EndDisabled();
-                ImGui::EndTabItem();
+                ImGuiUtils::EndTabItem();
             }
-            if (ImGui::BeginTabItem("Presets")) {
+            if (ImGuiUtils::BeginTabItem("Presets")) {
                 ImGui::BeginDisabled(controlsLocked);
                 FnPreset::calculation(*this);
                 FnPreset::render(*this);
                 FnPreset::resolution(*this);
                 FnPreset::shader(*this);
                 ImGui::EndDisabled();
-                ImGui::EndTabItem();
+                ImGuiUtils::EndTabItem();
             }
-            if (ImGui::BeginTabItem("Shader")) {
+            if (ImGuiUtils::BeginTabItem("Shader")) {
                 ImGui::BeginDisabled(controlsLocked);
                 FnFile::saveShaderPreset(*this);
                 FnFile::loadShaderPreset(*this);
@@ -991,9 +1012,9 @@ namespace merutilm::rff2 {
                 FnShader::fractal3D(*this);
 #endif
                 ImGui::EndDisabled();
-                ImGui::EndTabItem();
+                ImGuiUtils::EndTabItem();
             }
-            if (ImGui::BeginTabItem("Video")) {
+            if (ImGuiUtils::BeginTabItem("Video")) {
                 ImGui::BeginDisabled(controlsLocked);
                 FnVideo::dataSettings(*this);
                 FnVideo::animationSettings(*this);
@@ -1001,11 +1022,12 @@ namespace merutilm::rff2 {
                 FnVideo::renderingProcessMenu(*this);
                 FnVideo::exportZoomingVideo(*this);
                 ImGui::EndDisabled();
-                ImGui::EndTabItem();
+                ImGuiUtils::EndTabItem();
             }
-            if (ImGui::BeginTabItem("Explore")) {
+            if (ImGuiUtils::BeginTabItem("Explore")) {
                 ImGui::BeginDisabled(controlsLocked);
                 FnExplore::recompute(*this);
+                FnExplore::regenerateApprox(*this);
                 FnExplore::reset(*this);
                 FnExplore::cancelRender(*this);
                 FnExplore::moveCursorToCenter(*this);
@@ -1015,7 +1037,7 @@ namespace merutilm::rff2 {
                 ImGui::BeginDisabled(controlsLocked);
                 FnExplore::autoExplorer(*this);
                 ImGui::EndDisabled();
-                ImGui::EndTabItem();
+                ImGuiUtils::EndTabItem();
             }
             ImGui::EndTabBar();
         }
@@ -1023,22 +1045,32 @@ namespace merutilm::rff2 {
         ImGui::End();
     }
 
-    void RFF2::renderStatusImGui() const {
+    void RFF2::renderStatusImGui() {
 
         const float height = ImGui::GetTextLineHeight() + ImGui::GetStyle().WindowPadding.y * 2;
-        ImGui::SetNextWindowPos(ImVec2(0, ImGui::GetIO().DisplaySize.y - height));
 
+        ImGui::SetNextWindowPos(ImVec2(0, ImGui::GetIO().DisplaySize.y - height));
         ImGui::SetNextWindowSize(ImVec2(ImGui::GetIO().DisplaySize.x, height));
 
-        ImGui::Begin("StatusBar", nullptr,
+        ImGui::Begin("##StatusBar", nullptr,
                      ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
                              ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+
+        if (ImGui::IsWindowHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+            showControl = !showControl;
+        }
+
         ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(0, 0));
-        if (ImGui::BeginTable("StatusBarTable", static_cast<int>(statusMessages.size()),
-                              ImGuiTableFlags_BordersInner)) {
-            for (const auto &statusMessage: statusMessages) {
+        if (ImGui::BeginTable("StatusBarTable", static_cast<int>(statusInfos.size()), ImGuiTableFlags_BordersInner)) {
+            for (auto &statusInfo: statusInfos) {
                 ImGui::TableNextColumn();
-                ImGui::TextUnformatted(statusMessage.c_str());
+                ImGui::TextUnformatted(statusInfo.status.c_str());
+
+                if (ImGui::IsItemHovered() && !statusInfo.tooltip.empty()) {
+                    ImGui::BeginTooltip();
+                    ImGui::TextUnformatted(statusInfo.tooltip.c_str());
+                    ImGui::EndTooltip();
+                }
             }
             ImGui::EndTable();
         }
@@ -1184,19 +1216,54 @@ namespace merutilm::rff2 {
         }
     }
 
-    void RFF2::recomputeThreaded() {
+    void RFF2::recomputeThreaded(RecomputeMode recomputeMode) {
 
-        state.createThread([this] {
+        state.createThread([this, recomputeMode] {
             Settings s = this->settings; // clone the settings
             const auto start = rootWindowContext->getWindow()->getTime();
             bool success = false;
 
             try {
+                updateFractalFrame = false;
                 matchSettingsBeforeCreatingRenderData(s);
-                success = prepareRenderData(start, s);
-                matchSettingsAfterCreatingRenderData(s);
+                switch (recomputeMode) {
+                    using enum RecomputeMode;
+                    case ALL: {
+                        const RFFResult r = prepareRenderData(start, s);
+                        if (r == RFFResult::ERROR_NULL) {
+                            this->settings.fractal.reference.reuse = false;
+                            vkh::logger::log_err("Do not reuse Reference during reference calculation!");
+                            requests.requestRecompute();
+                            break;
+                        }
 
+                        success = r == RFFResult::SUCCESS;
+                        break;
+                    }
+                    case APPROX: {
+                        std::unique_lock renderDataLock(renderDataMutex);
+                        if (!renderData) {
+                            vkh::logger::log_err("Do not request \"recreate Approximation\" for incomplete reference!");
+                            break;
+                        }
+
+                        renderData->fractalSettings.sa = s.fractal.sa;
+                        renderData->fractalSettings.mpa = s.fractal.mpa;
+
+                        if (renderData->regenerateApprox(getFnSeriesApprox(start), getFnCreatingTable(start)) !=
+                            RFFResult::SUCCESS) {
+                            vkh::logger::log_err("Do not request \"recreate Approximation\" for incomplete reference!");
+                            success = false;
+                        } else {
+                            success = true;
+                        }
+                        break;
+                    }
+                    default:
+                        throw vkh::exception_invalid_args("Unknown recompute mode");
+                }
                 if (success) {
+                    loadSettingsFromRenderData(s);
                     beforeIterationFill(s);
                     success = fillIteration(start, s);
                 }
@@ -1250,20 +1317,18 @@ namespace merutilm::rff2 {
     void RFF2::matchSettingsBeforeCreatingRenderData(Settings &s) {
         if (s.render.computeShader.use) {
             s.fractal.reference.sync.referenceSynchronizationInterval = 1;
-            s.fractal.mpa.useCompress = false;
-            s.fractal.reference.compression.compressCriteria = 0;
+            s.fractal.reference.compression.minCompressSize = 0;
         }
     }
 
-    void RFF2::matchSettingsAfterCreatingRenderData(Settings &s) const { s.fractal = renderData->fractalSettings; }
+    void RFF2::loadSettingsFromRenderData(Settings &s) const { s.fractal = renderData->fractalSettings; }
 
-    bool RFF2::prepareRenderData(const double startTime, const Settings &s) {
+    RFFResult RFF2::prepareRenderData(const double startTime, const Settings &s) {
         std::unique_lock renderDataLock(renderDataMutex);
-
         updateFractalFrame = false;
 
         if (state.interruptRequested())
-            return false;
+            return RFFResult::TERMINATED;
 
         const auto &frt = s.fractal;
         const double logZoom = frt.general.logZoom;
@@ -1271,58 +1336,52 @@ namespace merutilm::rff2 {
         setStatusMessage(Constants::Status::ZOOM_STATUS,
                          std::format("Zoom : {:.06f}E{:d}", pow(10, fmod(logZoom, 1)), static_cast<int>(logZoom)));
 
-        const complex<dex> offset = offsetConversion(logZoom, settings.render.display.clarityMultiplier, 0, 0);
-        const dex dcMax = offset.norm_approx();
+        const dex dcMax = calcDcMax(logZoom, settings.render.display.clarityMultiplier);
 
-        static uint64_t capacity = 0;
+        static size_t capacity = 0;
         if (renderData && renderData->getReference()) {
             capacity = renderData->getReference()->length();
         }
 
 
         if (state.interruptRequested())
-            return false;
+            return RFFResult::TERMINATED;
 
 
         const int64_t exp10 = Perturbator::getExp10WithSettings(settings.fractal.reference, logZoom);
         if (frt.reference.reuse) {
-            if (!renderData || !renderData->getReference() || !renderData->getPerturbator()) {
-                vkh::logger::log_err("Do not reuse Reference during reference calculation!!!");
-                this->settings.fractal.reference.reuse = false;
-                requests.requestRecompute();
-                return false;
+            if (!renderData || !renderData->getReference()) {
+                return RFFResult::ERROR_NULL;
             }
-
-            fixed_point_complex center = frt.reference.center.create_variant(exp10);
-            const fixed_point_complex referenceCenter = renderData->getReference()->center.create_variant(exp10);
-            fixed_point_complex::sub(center, center, referenceCenter);
-            const dex distance = static_cast<complex<dex>>(center).norm_approx();
-
-
-            renderData->translate(frt.general.logZoom, dcMax + distance, frt.perturb, frt.reference.center,
-                                  getFnSeriesApprox(startTime));
+            if (const RFFResult r = renderData->translate(frt.general.logZoom, dcMax, frt.perturb, frt.reference.center,
+                                                          getFnSeriesApprox(startTime));
+                r != RFFResult::SUCCESS) {
+                return r;
+            }
         } else {
             renderData = nullptr;
 
-            renderData = createAppropriateRenderData(s.render.computeShader.use, logZoom, startTime, frt, dcMax, exp10,
-                                                     capacity);
+            if (const RFFResult r = createAppropriateRenderData(s.render.computeShader.use, logZoom, startTime, frt,
+                                                                dcMax, exp10, capacity);
+                r != RFFResult::SUCCESS) {
+                return r;
+            }
         }
 
         // sync settings
 
-        const MB2ReferenceBase *reference = renderData->getReference();
-        if (!reference || state.interruptRequested())
-            return false;
-
-        size_t refLength = reference->length();
-        size_t mpaLen = approxTableCache ? approxTableCache->mpaTable.sizeUsed : 0;
-
+        const MB2ReferenceBase &reference = *renderData->getReference();
+        const size_t refLength = reference.length();
+        const size_t mpaLen = approxTableCache ? approxTableCache->mpaTable.sizeUsed : 0;
         setStatusMessage(Constants::Status::PERIOD_STATUS,
-                         std::format("Period : {:L} ({:L}, {:L})", reference->longestPeriod(), refLength, mpaLen));
+                         std::format("Period : {}", Utilities::formatThousands(reference.longestPeriod())));
+        setTooltipMessage(Constants::Status::PERIOD_STATUS,
+                          std::format("Reference Size : {}\nMP-Approx Size : {}", Utilities::formatThousands(refLength),
+                                      Utilities::formatThousands(mpaLen)));
         if (state.interruptRequested())
-            return false;
+            return RFFResult::TERMINATED;
 
-        return true;
+        return RFFResult::SUCCESS;
     }
 
     void RFF2::loadSnapshot() const {
@@ -1331,21 +1390,22 @@ namespace merutilm::rff2 {
         const auto &dstCtx = renderer->visibleIterationBufferData->getContext();
         multithreadedManager->fence->waitAndReset();
         {
-            const auto executor = vkh::ScopedCommandBufferExecutor(
-                   *rootWindowContext, *multithreadedManager->commandBuffer, *multithreadedManager->fence, nullptr, nullptr);
+            const auto executor =
+                    vkh::ScopedCommandBufferExecutor(*rootWindowContext, *multithreadedManager->commandBuffer,
+                                                     *multithreadedManager->fence, nullptr, nullptr);
             vkh::BarrierUtils::cmdBufferMemoryBarrier(
                     multithreadedManager->commandBuffer->getCommandBufferHandle(), VK_ACCESS_SHADER_WRITE_BIT,
-                    VK_ACCESS_TRANSFER_READ_BIT, srcCtx.buffer, 0, srcCtx.bufferSize, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                    VK_PIPELINE_STAGE_TRANSFER_BIT);
+                    VK_ACCESS_TRANSFER_READ_BIT, srcCtx.buffer, 0, srcCtx.bufferSize,
+                    VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
             vkh::BarrierUtils::cmdBufferMemoryBarrier(
                     multithreadedManager->commandBuffer->getCommandBufferHandle(),
-                    VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, dstCtx.buffer, 0,
-                    dstCtx.bufferSize, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+                    VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, dstCtx.buffer,
+                    0, dstCtx.bufferSize, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
             vkh::BufferImageContextUtils::cmdCopyBuffer(*multithreadedManager->commandBuffer, srcCtx, dstCtx);
-            vkh::BarrierUtils::cmdBufferMemoryBarrier(multithreadedManager->commandBuffer->getCommandBufferHandle(),
-                                                      VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
-                                                      dstCtx.buffer, 0, dstCtx.bufferSize, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                                                      VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+            vkh::BarrierUtils::cmdBufferMemoryBarrier(
+                    multithreadedManager->commandBuffer->getCommandBufferHandle(), VK_ACCESS_TRANSFER_WRITE_BIT,
+                    VK_ACCESS_SHADER_READ_BIT, dstCtx.buffer, 0, dstCtx.bufferSize, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                    VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
         }
 
         multithreadedManager->fence->wait();
@@ -1364,19 +1424,29 @@ namespace merutilm::rff2 {
 
         uint32_t len = static_cast<uint32_t>(w) * h;
 
-        auto func = [&s, this, len, &renderPixelsCount](const uint16_t x, const uint16_t y, const uint16_t,
-                                                        const uint16_t, float, float, const uint32_t i, double) {
-            RFF_ASSERT(i < len);
-            const auto dc = offsetConversion(s.fractal.general.logZoom, s.render.display.clarityMultiplier, x, y);
-            const double iteration = renderData->getPerturbator()->iterate(dc);
+        auto func = [&s, this, len, &renderPixelsCount](SIMDChunk<double> &chunk) {
+            std::array<complex<dex>, RFF_SIMD_CHUNK_SIZE> dcs;
+            for (uint32_t i = 0; i < chunk.validLen; ++i) {
+                const uint32_t x = chunk.data[i].x;
+                const uint32_t y = chunk.data[i].y;
+                dcs[i] = offsetConversion(s.fractal.general.logZoom, s.render.display.clarityMultiplier, x, y);
+                RFF_ASSERT(i < len);
+            }
+            if (settings.render.simd) {
+                renderData->getPerturbator()->iterateBatch(chunk, dcs);
+            } else {
+                for (uint32_t i = 0; i < chunk.validLen; ++i) {
+                    *chunk.data[i].value = renderData->getPerturbator()->iterate(dcs[i]);
+                }
+            }
 
-            renderer->visibleIterationBufferData->set(x, y, iteration);
+            renderer->visibleIterationBufferData->setBatch(chunk);
 
-            ++renderPixelsCount;
-            return iteration;
+            renderPixelsCount += chunk.validLen;
         };
         const auto previewer =
-                ParallelArrayDispatcher<double>(state, actualIterationMatrix, w, h, s.fractal.general.threads, s.render.display.blockSize, std::move(func));
+                ParallelArrayDispatcher<double>(state, actualIterationMatrix, w, h, s.fractal.general.threads,
+                                                s.render.display.blockSize, std::move(func));
 
 
         auto statusThread = std::jthread([&renderPixelsCount, len, this, startTime](const std::stop_token &stop) {
@@ -1394,7 +1464,6 @@ namespace merutilm::rff2 {
         });
 
 
-        // loadSnapshot();
         renderer->visibleIterationBufferData->fillZero();
         recomputeFirstRefresh = true;
         updateFractalFrame = true;
@@ -1407,12 +1476,13 @@ namespace merutilm::rff2 {
         if (state.interruptRequested())
             return;
 
-        const auto syncer = ParallelArrayDispatcher<double>(
-                state, actualIterationMatrix, w, h, s.fractal.general.threads, s.render.display.blockSize,
-                [this](const uint16_t x, const uint16_t y, uint16_t, uint16_t, float, float, uint32_t, const double a) {
-                    renderer->visibleIterationBufferData->set(x, y, a);
-                    return 0;
-                });
+        const auto syncer =
+                ParallelArrayDispatcher<double>(state, actualIterationMatrix, w, h, s.fractal.general.threads,
+                                                s.render.display.blockSize, [this](const SIMDChunk<double> &chunk) {
+                                                    for (uint32_t i = 0; i < chunk.validLen; ++i) {
+                                                        renderer->visibleIterationBufferData->setBatch(chunk);
+                                                    }
+                                                });
 
         syncer.dispatch();
     }
@@ -1442,6 +1512,11 @@ namespace merutilm::rff2 {
         if (state.interruptRequested()) {
             return false;
         }
+
+        const auto [min, max] = std::ranges::minmax(renderer->visibleIterationBufferData->getData());
+        setTooltipMessage(Constants::Status::ITERATION_STATUS,
+                          std::format("Min : {}\nMax : {}", Utilities::formatThousands(static_cast<itt::ptb>(min)),
+                                      Utilities::formatThousands(static_cast<itt::ptb>(max))));
 
         setStatusMessage(Constants::Status::RENDER_STATUS, "Done");
         return true;
