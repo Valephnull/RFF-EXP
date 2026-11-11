@@ -9,6 +9,7 @@
 #include "RFF2.hpp"
 #include "VideoBufferCache.hpp"
 #include "VideoWindowRenderManager.hpp"
+#include "opencv2/freetype.hpp"
 
 namespace merutilm::rff2 {
 
@@ -52,7 +53,8 @@ namespace merutilm::rff2 {
         void renderVideo();
 
         static cv::Mat generateFrame(const VideoBufferCache &buffer, int imgWidth,
-                                     const VidAnimationSettings &animation);
+                                     const VidAnimationSettings &animation,
+                                     const cv::Ptr<cv::freetype::FreeType2> &systemFont = {});
 
     protected:
         void initScene(const VkExtent2D &videoExtent, const Settings &targetSettings);

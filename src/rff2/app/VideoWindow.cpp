@@ -12,6 +12,7 @@
 #include "../io/RFFDynamicMapBinary.hpp"
 #include "../io/RFFStaticMapBinary.hpp"
 #include "../util/Utilities.h"
+#include "../util/ZoomCounterText.hpp"
 #include "IOUtilities.h"
 #include "opencv2/opencv.hpp"
 
@@ -182,6 +183,17 @@ namespace merutilm::rff2 {
         GLFWwindow *handle = manager.getWindowContext().getWindow()->getWindow();
 
         auto &[mutex, ratio, remainedTimeStr, active] = app.getVideoProgressInfo();
+        cv::Ptr<cv::freetype::FreeType2> systemFont;
+        if (!animation.zoomCounterFontPath.empty()) {
+            try {
+                systemFont = cv::freetype::createFreeType2();
+                systemFont->loadFontData(animation.zoomCounterFontPath, 0);
+            } catch (const cv::Exception &error) {
+                systemFont.release();
+                vkh::logger::log_err("Could not load zoom-counter font '{}': {}. Using the default font.",
+                                     animation.zoomCounterFontPath, error.what());
+            }
+        }
         const double frameInterval = static_cast<double>(animation.mps) / fps;
         uint32_t maxNumber;
         if (isStatic) {
@@ -268,7 +280,7 @@ namespace merutilm::rff2 {
             manager.setTime(currentSec);
             manager.renderOnce();
             VideoBufferCache buffer = manager.createImage();
-            writer << generateFrame(buffer, static_cast<int>(imageWidth), animation);
+            writer << generateFrame(buffer, static_cast<int>(imageWidth), animation, systemFont);
 
             const double progressRatio =
                     (static_cast<double>(maxNumber) - currentFrame) /
@@ -301,25 +313,33 @@ namespace merutilm::rff2 {
 
 
     cv::Mat VideoWindow::generateFrame(const VideoBufferCache &buffer, const int imgWidth,
-                                       const VidAnimationSettings &animation) {
+                                       const VidAnimationSettings &animation,
+                                       const cv::Ptr<cv::freetype::FreeType2> &systemFont) {
 
         auto &img = buffer.image;
         if (animation.showText) {
             const int xg = std::max(1, imgWidth / 72);
             const int yg = std::max(1, imgWidth / 192);
             const int loc = std::max(1, imgWidth / 40);
-            const float size = std::max(1.0f, static_cast<float>(imgWidth) / 800);
+            const float scale = std::clamp(animation.zoomCounterScale, 0.1f, 10.0f);
+            const float size = std::max(0.1f, static_cast<float>(imgWidth) / 800 * scale);
             const int off = std::max(1, loc / 15);
             const int tkn = std::max(1, off / 2);
 
-            const std::string zoomStr = std::format("{} : {:6f}E{:d}", animation.zoomCounterLabel,
-                                                    std::pow(10, std::fmod(buffer.logZoom, 1)),
-                                                    static_cast<int64_t>(buffer.logZoom));
-            const int font = std::clamp(animation.zoomCounterFont, 0, 7);
-            cv::putText(img, zoomStr, cv::Point(xg + off, loc + yg + off), font, size,
-                        cv::Scalar(0, 0, 0));
-            cv::putText(img, zoomStr, cv::Point(xg, loc + yg), font, size, cv::Scalar(255, 255, 255),
-                        tkn, cv::LINE_AA);
+            const std::string zoomStr = formatZoomCounter(animation, buffer.logZoom);
+            if (systemFont) {
+                const int fontHeight = std::max(8, static_cast<int>(std::lround(imgWidth / 40.0f * scale)));
+                systemFont->putText(img, zoomStr, cv::Point(xg + off, loc + yg + off), fontHeight,
+                                    cv::Scalar(0, 0, 0), -1, cv::LINE_AA, false);
+                systemFont->putText(img, zoomStr, cv::Point(xg, loc + yg), fontHeight,
+                                    cv::Scalar(255, 255, 255), -1, cv::LINE_AA, false);
+            } else {
+                const int font = std::clamp(animation.zoomCounterFont, 0, 7);
+                cv::putText(img, zoomStr, cv::Point(xg + off, loc + yg + off), font, size,
+                            cv::Scalar(0, 0, 0));
+                cv::putText(img, zoomStr, cv::Point(xg, loc + yg), font, size,
+                            cv::Scalar(255, 255, 255), tkn, cv::LINE_AA);
+            }
         }
         return img;
     }

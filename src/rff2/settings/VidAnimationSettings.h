@@ -13,5 +13,9 @@ namespace merutilm::rff2 {
         float mps;
         std::string zoomCounterLabel = "Zoom";
         int32_t zoomCounterFont = 1; // OpenCV FONT_HERSHEY_PLAIN
+        int32_t zoomCounterPrecision = 6;
+        std::string zoomCounterFontPath;
+        float zoomCounterScale = 1.0f;
+        bool previewZoomCounter = false;
     };
 }

@@ -55,9 +55,27 @@ namespace merutilm::rff2 {
             if (ImGui::InputText("Counter Label", &animation.zoomCounterLabel) &&
                 animation.zoomCounterLabel.size() > 128)
                 animation.zoomCounterLabel.resize(128);
-            constexpr const char *FONTS[] = {"Simplex", "Plain", "Duplex", "Complex",
-                                             "Triplex", "Complex Small", "Script Simplex", "Script Complex"};
-            ImGui::Combo("Counter Font", &animation.zoomCounterFont, FONTS, static_cast<int>(std::size(FONTS)));
+            const std::string selectedFont = animation.zoomCounterFontPath.empty()
+                                                     ? "Default"
+                                                     : std::filesystem::path(animation.zoomCounterFontPath).filename().string();
+            ImGui::TextWrapped("Font: %s", selectedFont.c_str());
+            if (ImGui::Button("Choose System Font")) {
+                if (const auto fontPath = IOUtilities::ioFileDialog("Font files", IOUtilities::OPEN_FILE,
+                                                                    "ttf,otf,ttc"))
+                    animation.zoomCounterFontPath = fontPath->string();
+            }
+            if (!animation.zoomCounterFontPath.empty()) {
+                ImGui::SameLine();
+                if (ImGui::Button("Use Default Font"))
+                    animation.zoomCounterFontPath.clear();
+            }
+            if (ImGui::InputFloat("Text Scale", &animation.zoomCounterScale, 0.1f, 0.5f, "%.2fx"))
+                animation.zoomCounterScale = std::clamp(animation.zoomCounterScale, 0.1f, 10.0f);
+            if (ImGui::InputInt("Decimal Precision", &animation.zoomCounterPrecision))
+                animation.zoomCounterPrecision = std::clamp(animation.zoomCounterPrecision, 0, 15);
+            ImGuiUtils::HelpMarker("Number of digits displayed after the decimal point in the zoom counter.");
+            ImGui::Checkbox("Preview Counter", &animation.previewZoomCounter);
+            ImGuiUtils::HelpMarker("Preview the counter over the normal fractal viewport.");
         }
 
         ImGui::InputFloat("Zoom Speed", &animation.mps);

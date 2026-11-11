@@ -91,6 +91,16 @@ namespace merutilm::rff2 {
                 return static_cast<bool>(stream);
             }
 
+            bool optionalText(std::string &output, const uint64_t maximumBytes) {
+                uint64_t length = 0;
+                if (!value(length) || length > maximumBytes)
+                    return false;
+                output.resize(static_cast<size_t>(length));
+                if (length != 0)
+                    stream.read(output.data(), static_cast<std::streamsize>(length));
+                return static_cast<bool>(stream);
+            }
+
             [[nodiscard]] bool good() const { return static_cast<bool>(stream); }
         };
 
@@ -360,6 +370,10 @@ namespace merutilm::rff2 {
             writer.boolean(settings.render.simd);
             writer.text(video.animation.zoomCounterLabel);
             writer.value(video.animation.zoomCounterFont);
+            writer.value(video.animation.zoomCounterPrecision);
+            writer.text(video.animation.zoomCounterFontPath);
+            writer.value(video.animation.zoomCounterScale);
+            writer.boolean(video.animation.previewZoomCounter);
         }
 
         bool readConfigPayload(Reader &reader, Settings &settings, uint32_t &width, uint32_t &height,
@@ -446,10 +460,25 @@ namespace merutilm::rff2 {
 
             video.animation.zoomCounterLabel = "Zoom";
             video.animation.zoomCounterFont = 1;
+            video.animation.zoomCounterPrecision = 6;
+            video.animation.zoomCounterFontPath.clear();
+            video.animation.zoomCounterScale = 1.0f;
+            video.animation.previewZoomCounter = false;
             if (version >= 6 &&
                 (!reader.text(video.animation.zoomCounterLabel, 128) ||
                  !reader.value(video.animation.zoomCounterFont) ||
                  video.animation.zoomCounterFont < 0 || video.animation.zoomCounterFont > 7))
+                return false;
+            if (version >= 7 &&
+                (!reader.value(video.animation.zoomCounterPrecision) ||
+                 video.animation.zoomCounterPrecision < 0 || video.animation.zoomCounterPrecision > 15))
+                return false;
+            if (version >= 8 &&
+                (!reader.optionalText(video.animation.zoomCounterFontPath, 32768) ||
+                 !reader.value(video.animation.zoomCounterScale) ||
+                 !reader.boolean(video.animation.previewZoomCounter) ||
+                 !finite(video.animation.zoomCounterScale) ||
+                 video.animation.zoomCounterScale < 0.1f || video.animation.zoomCounterScale > 10.0f))
                 return false;
 
             const auto allFinite = [](const std::initializer_list<double> values) {

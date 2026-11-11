@@ -361,6 +361,7 @@ jobs:
             "libopencv_imgcodecs-*.dll"
             "libopencv_videoio-*.dll"
             "libopencv_highgui-*.dll"
+            "libopencv_freetype-*.dll"
 
             "avcodec-*.dll"
             "avformat-*.dll"

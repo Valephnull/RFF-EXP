@@ -93,7 +93,10 @@ namespace {
                                  .opacity = 0.6f, .color = {0.2f, 0.4f, 0.8f, 1}}},
                 .video = {.data = {.defaultZoomIncrement = 2.5f, .isStatic = true},
                           .animation = {.overZoom = 1.5f, .showText = false, .mps = 2.0f,
-                                        .zoomCounterLabel = "Magnification", .zoomCounterFont = 4},
+                                        .zoomCounterLabel = "Magnification", .zoomCounterFont = 4,
+                                        .zoomCounterPrecision = 9,
+                                        .zoomCounterFontPath = "C:/System Fonts/Test Font.ttf",
+                                        .zoomCounterScale = 1.75f, .previewZoomCounter = true},
                           .exportation = {.fps = 30.0f, .bitrate = 12000}},
                 .explore = {.autoMoveCursorToCenter = false,
                             .autoAimRadiusPixels = 137,
@@ -133,10 +136,47 @@ int main() {
     assert(loaded.video.exportation.bitrate == 12000);
     assert(loaded.video.animation.zoomCounterLabel == "Magnification");
     assert(loaded.video.animation.zoomCounterFont == 4);
+    assert(loaded.video.animation.zoomCounterPrecision == 9);
+    assert(loaded.video.animation.zoomCounterFontPath == "C:/System Fonts/Test Font.ttf");
+    assert(loaded.video.animation.zoomCounterScale == 1.75f);
+    assert(loaded.video.animation.previewZoomCounter);
     assert(loaded.explore.autoAimRadiusPixels == 137);
 
+    // Version 7 configs have precision but no system-font/scale/preview tail.
+    std::filesystem::resize_file(configPath, std::filesystem::file_size(configPath) -
+                                             sizeof(uint64_t) - original.video.animation.zoomCounterFontPath.size() -
+                                             sizeof(float) - sizeof(uint8_t));
+    {
+        std::fstream legacy(configPath, std::ios::binary | std::ios::in | std::ios::out);
+        legacy.seekp(sizeof(uint32_t));
+        const uint32_t version = 7;
+        legacy.write(reinterpret_cast<const char *>(&version), sizeof(version));
+    }
+    loaded.video.animation.zoomCounterFontPath = "Should be reset";
+    loaded.video.animation.zoomCounterScale = 4.0f;
+    loaded.video.animation.previewZoomCounter = true;
+    assert(RFFSettingsIO::loadConfig(configPath, loaded, &width, &height));
+    assert(loaded.video.animation.zoomCounterPrecision == 9);
+    assert(loaded.video.animation.zoomCounterFontPath.empty());
+    assert(loaded.video.animation.zoomCounterScale == 1.0f);
+    assert(!loaded.video.animation.previewZoomCounter);
+
+    // Version 6 configs have the label/font but no precision value.
+    std::filesystem::resize_file(configPath, std::filesystem::file_size(configPath) - sizeof(int32_t));
+    {
+        std::fstream legacy(configPath, std::ios::binary | std::ios::in | std::ios::out);
+        legacy.seekp(sizeof(uint32_t));
+        const uint32_t version = 6;
+        legacy.write(reinterpret_cast<const char *>(&version), sizeof(version));
+    }
+    loaded.video.animation.zoomCounterPrecision = 12;
+    assert(RFFSettingsIO::loadConfig(configPath, loaded, &width, &height));
+    assert(loaded.video.animation.zoomCounterLabel == "Magnification");
+    assert(loaded.video.animation.zoomCounterFont == 4);
+    assert(loaded.video.animation.zoomCounterPrecision == 6);
+
     // Version 5 configs ended immediately before the counter label/font tail.
-    // They should retain the historical defaults when loaded by version 6.
+    // They should retain all historical defaults when loaded by version 7.
     std::filesystem::resize_file(configPath, std::filesystem::file_size(configPath) -
                                              sizeof(uint64_t) - original.video.animation.zoomCounterLabel.size() -
                                              sizeof(int32_t));
@@ -148,9 +188,11 @@ int main() {
     }
     loaded.video.animation.zoomCounterLabel = "Should be reset";
     loaded.video.animation.zoomCounterFont = 7;
+    loaded.video.animation.zoomCounterPrecision = 12;
     assert(RFFSettingsIO::loadConfig(configPath, loaded, &width, &height));
     assert(loaded.video.animation.zoomCounterLabel == "Zoom");
     assert(loaded.video.animation.zoomCounterFont == 1);
+    assert(loaded.video.animation.zoomCounterPrecision == 6);
 
     assert(RFFSettingsIO::saveShaderPreset(shaderPath, original.shader));
     ShaderSettings shader = loaded.shader;

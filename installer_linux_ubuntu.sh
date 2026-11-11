@@ -69,6 +69,7 @@ fi
     libavformat-dev \
     libavutil-dev \
     libopencv-dev \
+    libopencv-contrib-dev \
     libssl-dev \
     libvulkan-dev \
     glslc \

@@ -31,7 +31,7 @@ if (WIN32)
     else ()
         set(RFF_OPENCV_INCLUDE_DIR "${CLANG64_DIRS}/include/opencv4")
     endif ()
-    foreach (component core imgcodecs imgproc videoio highgui)
+    foreach (component core imgcodecs imgproc videoio highgui freetype)
         find_library(RFF_OPENCV_${component}
                 NAMES opencv_${component} opencv_${component}4110
                 PATHS "${CLANG64_LIBS}" NO_DEFAULT_PATH REQUIRED)
@@ -72,7 +72,7 @@ elseif (UNIX)
         )
     endmacro()
 
-    find_package(OpenCV REQUIRED)
+    find_package(OpenCV REQUIRED COMPONENTS core imgcodecs imgproc videoio highgui freetype)
     find_package(PkgConfig REQUIRED)
 
     pkg_check_modules(GTK3 REQUIRED gtk+-3.0)

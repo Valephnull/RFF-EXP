@@ -24,6 +24,7 @@
 #include "../preset/shader/surface/ShdSurfacePresets.hpp"
 #include "../util/ImGuiUtils.hpp"
 #include "../util/Utilities.h"
+#include "../util/ZoomCounterText.hpp"
 #include "../vulkan/GPCDownsampleForBlur.hpp"
 #include "../vulkan/SharedImageContextIndices.hpp"
 #include "../vulkan/desc/SharedDescriptorTemplate.hpp"
@@ -193,6 +194,9 @@ namespace merutilm::rff2 {
         }
         if (!videoExportActive && videoExportWindow && videoExportWindow.use_count() == 1)
             videoExportWindow.reset();
+
+        // Font inputs may only be added while the atlas is unlocked, before NewFrame().
+        refreshZoomCounterPreviewFont();
 
         // Coalesce rapid wheel input so rendering does not fall a frame behind
         // the user's latest cursor anchor.
@@ -626,6 +630,46 @@ namespace merutilm::rff2 {
         drawList->AddText({feature.x + 8.0f, feature.y - 8.0f}, color, label.c_str());
     }
 
+    void RFF2::refreshZoomCounterPreviewFont() {
+        const auto &animation = settings.video.animation;
+        if (!animation.previewZoomCounter || animation.zoomCounterFontPath == zoomCounterPreviewFontPath)
+            return;
+
+        zoomCounterPreviewFontPath = animation.zoomCounterFontPath;
+        zoomCounterPreviewFont = nullptr;
+        std::error_code fontError;
+        if (zoomCounterPreviewFontPath.empty() ||
+            !std::filesystem::is_regular_file(zoomCounterPreviewFontPath, fontError))
+            return;
+
+        ImFontConfig config;
+        config.Flags |= ImFontFlags_NoLoadError;
+        zoomCounterPreviewFont = ImGui::GetIO().Fonts->AddFontFromFileTTF(
+                zoomCounterPreviewFontPath.c_str(), 20.0f, &config, ImGui::GetIO().Fonts->GetGlyphRangesDefault());
+    }
+
+    void RFF2::renderZoomCounterPreview() {
+        const auto &animation = settings.video.animation;
+        if (!animation.showText || !animation.previewZoomCounter)
+            return;
+
+        const ImVec2 display = ImGui::GetIO().DisplaySize;
+        const float scale = std::clamp(animation.zoomCounterScale, 0.1f, 10.0f);
+        const float fontHeight = std::max(8.0f, display.x / 40.0f * scale);
+        const float x = std::max(1.0f, display.x / 72.0f);
+        const float y = std::max(1.0f, display.x / 192.0f);
+        const float shadowOffset = std::max(1.0f, display.x / 600.0f);
+        const double visibleLogZoom = settings.fractal.general.logZoom -
+                                              zoomAnimationInfo.targetLogZoomOffsetAim +
+                                              zoomAnimationInfo.targetLogZoomOffset;
+        const std::string text = formatZoomCounter(animation, visibleLogZoom);
+        ImFont *font = zoomCounterPreviewFont ? zoomCounterPreviewFont : ImGui::GetFont();
+        ImDrawList *drawList = ImGui::GetBackgroundDrawList();
+        drawList->AddText(font, fontHeight, {x + shadowOffset, y + shadowOffset}, IM_COL32(0, 0, 0, 255),
+                          text.c_str());
+        drawList->AddText(font, fontHeight, {x, y}, IM_COL32(255, 255, 255, 255), text.c_str());
+    }
+
 
     void RFF2::addListeners() {
         auto &eventSystem = rootWindowContext->getWindow()->eventSystem;
@@ -962,6 +1006,7 @@ namespace merutilm::rff2 {
 
         renderControlImGui();
         renderStatusImGui();
+        renderZoomCounterPreview();
         renderGuidedZoomOverlay();
         crashRecovery.renderImGui(*this);
         FnVideo::renderingProcessWindow(*this);

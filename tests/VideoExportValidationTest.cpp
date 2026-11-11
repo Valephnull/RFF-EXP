@@ -1,4 +1,5 @@
 #include "rff2/app/VideoExportValidation.hpp"
+#include "rff2/util/ZoomCounterText.hpp"
 
 #include <iostream>
 #include <source_location>
@@ -11,6 +12,12 @@ int main() try {
         if (!condition) throw std::runtime_error("Video export validation failed at line " + std::to_string(location.line()));
     };
     expect(validateVideoExport(60, 1, 0, 2, 1280, 720).empty());
+    VidAnimationSettings counter{.overZoom = 0, .showText = true, .mps = 1,
+                                 .zoomCounterLabel = "Scale", .zoomCounterPrecision = 3};
+    expect(formatZoomCounter(counter, 5.5) == "Scale : 3.162E5");
+    counter.zoomCounterLabel.clear();
+    counter.zoomCounterPrecision = 0;
+    expect(formatZoomCounter(counter, 2.0) == "1E2");
     expect(!validateVideoExport(0, 1, 0, 2, 1280, 720).empty());
     expect(!validateVideoExport(60, 0, 0, 2, 1280, 720).empty());
     expect(!validateVideoExport(60, -1, 0, 2, 1280, 720).empty());

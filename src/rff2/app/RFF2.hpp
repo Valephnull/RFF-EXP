@@ -33,6 +33,8 @@
 #include "vulkan_helper/Application.hpp"
 #include "vulkan_helper/engine/executor/ScopedCommandBufferExecutor.hpp"
 
+struct ImFont;
+
 namespace merutilm::rff2 {
     class VideoWindow;
 
@@ -120,6 +122,8 @@ namespace merutilm::rff2 {
         std::jthread guidedZoomSearchThread;
         bool wheelZoomRenderPending = false;
         double wheelZoomLastInputTime = -1;
+        ImFont *zoomCounterPreviewFont = nullptr;
+        std::string zoomCounterPreviewFontPath;
 
     public:
         explicit RFF2(vkh::ApplicationCreateInfo info, vkh::WindowInitializerSettings wic) :
@@ -364,6 +368,8 @@ namespace merutilm::rff2 {
         void queueGuidedZoomSearch(int mouseX, int mouseY, int radiusPixels, uint64_t render);
         void refreshGuidedZoomTarget(int mouseX, int mouseY);
         void renderGuidedZoomOverlay();
+        void refreshZoomCounterPreviewFont();
+        void renderZoomCounterPreview();
         static void initImGui();
         void renderControlImGui();
         void renderStatusImGui();
